@@ -10,8 +10,9 @@ Model (matches QMK's rgb_matrix reactive framework):
   - coordinates are QMK's 0..224 (x) by 0..64 (y) LED grid.
   - each keypress is a "hit" at the pressed LED's (x,y) with an age in ms.
   - a hit paints a ripple: the wavefront reaches distance d at time d*spread, so
-    nearer keys light first and farther keys are DELAYED (the ripple), each
-    fading over `fade` ms and dimming with distance. base colour shows through.
+    nearer keys light first and farther keys are DELAYED (the ripple).
+    Brightness stays CONSTANT (--value); the fade is a COLOUR blend from the
+    ripple colour back into the base over `fade` ms, never a dimming.
 
 Usage:
   ripple.py                 demo: auto-typing animation (Ctrl-C to quit)
@@ -34,31 +35,32 @@ def hexrgb(s):
 class Params:
     def __init__(self, a):
         self.base = hexrgb(a.base)        # steady background colour
-        self.hi = hexrgb(a.hi)            # keypress + ripple highlight colour
+        self.hi = hexrgb(a.hi)            # ripple colour (full blend)
         self.spread = a.spread            # ms of wavefront delay per grid unit
-        self.radius = a.radius            # max ripple reach, grid units (~15/key)
-        self.fade = a.fade                # ms a key stays lit after the wave hits
-        self.falloff = a.falloff          # dimming curve with distance (>=1 steep)
+        self.radius = a.radius            # reach, grid units (~15/key)
+        self.fade = a.fade                # ms to blend back to base
+        self.falloff = a.falloff          # fade curve (>1 lingers then drops)
+        self.value = a.value              # constant brightness 0..255
 
 
 def ripple_intensity(dist, age_ms, p):
-    """Highlight intensity [0,1] for a key `dist` units from a hit `age_ms` old.
-    THIS IS THE QMK REFERENCE. dist in grid units, age in ms."""
+    """Colour-BLEND amount [0,1] for a key `dist` units from a hit `age_ms` old:
+    1 the instant the wavefront arrives, fading to 0 (back to base) over `fade`.
+    NO distance dimming -- brightness is held constant in led_color; distance
+    only DELAYS arrival (that is the ripple). THIS IS THE QMK REFERENCE."""
     if dist > p.radius:
         return 0.0
     arrival = dist * p.spread             # the wavefront reaches this key later
     since = age_ms - arrival
     if since < 0.0:                       # wave hasn't arrived -> the delay
         return 0.0
-    tfade = 1.0 - since / p.fade          # fade out after arrival
-    if tfade <= 0.0:
+    if since >= p.fade:                   # blended fully back to base
         return 0.0
-    dfall = 1.0 - dist / p.radius         # dimmer the farther out
-    return tfade * (dfall ** p.falloff)
+    return (1.0 - since / p.fade) ** p.falloff
 
 
 def lerp(a, b, t):
-    return tuple(int(round(a[i] + (b[i] - a[i]) * t)) for i in range(3))
+    return tuple(a[i] + (b[i] - a[i]) * t for i in range(3))
 
 
 def led_color(led, hits, now, p):
@@ -69,7 +71,11 @@ def led_color(led, hits, now, p):
         inten = max(inten, ripple_intensity(d, (now - t0) * 1000.0, p))
         if inten >= 1.0:
             break
-    return lerp(p.base, p.hi, min(1.0, inten))
+    mixed = lerp(p.base, p.hi, min(1.0, inten))   # blend base <-> ripple colour
+    m = max(mixed)                                 # hold brightness constant:
+    if m <= 0.0:                                   # scale so the brightest
+        return (0, 0, 0)                           # channel == `value`
+    return tuple(min(255, int(round(v * p.value / m))) for v in mixed)
 
 
 # --- display grid: cluster LEDs into rows by y, place columns by x -----------
@@ -208,14 +214,15 @@ def main():
     ap = argparse.ArgumentParser(description="ripple RGB effect simulator")
     ap.add_argument("--leds", default=LEDS)
     ap.add_argument("--base", default="0000ff", help="base colour hex (blue)")
-    ap.add_argument("--hi", default="9400d3", help="highlight hex (deep purple)")
-    ap.add_argument("--spread", type=float, default=5.0, help="ms delay per unit")
+    ap.add_argument("--hi", default="9400d3", help="ripple colour hex (purple)")
+    ap.add_argument("--spread", type=float, default=8.0, help="ms delay/unit")
     ap.add_argument("--radius", type=float, default=34.0, help="reach, units")
-    ap.add_argument("--fade", type=float, default=325.0, help="lit time ms")
-    ap.add_argument("--falloff", type=float, default=1.4, help="dist dim curve")
+    ap.add_argument("--fade", type=float, default=325.0, help="blend-back ms")
+    ap.add_argument("--falloff", type=float, default=1.0, help="fade curve")
+    ap.add_argument("--value", type=float, default=255.0, help="bright 0-255")
     ap.add_argument("--fps", type=float, default=60.0)
     ap.add_argument("--keys", action="store_true", help="interactive (raw tty)")
-    ap.add_argument("--once", action="store_true", help="one sample frame, exit")
+    ap.add_argument("--once", action="store_true", help="one frame, exit")
     ap.add_argument("--frames", type=int, help="render N frames headless, exit")
     a = ap.parse_args()
 

@@ -16,10 +16,11 @@ Model (matches QMK's rgb_matrix reactive framework):
 
 Usage:
   ripple.py                 demo: auto-typing animation (Ctrl-C to quit)
-  ripple.py --keys          interactive: your keypresses drive it (raw tty)
+  ripple.py --keys          interactive: keys drive it; Tab blanks/restores the
+                            backlight (the screen-off preview). Ctrl-C quits.
   ripple.py --once          render one frame with a sample hit, then exit
   ripple.py --frames N      render N frames headless (no cursor tricks), exit
-  tunables: --base --hi --spread --radius --fade --falloff --fps  (see --help)
+  tunables: --base --hi --spread --radius --fade --falloff --value  (see --help)
 """
 import argparse, json, math, os, random, sys, time
 
@@ -190,6 +191,7 @@ def run_keys(leds, cell, nr, nc, p, fps):
     fd = sys.stdin.fileno()
     old = termios.tcgetattr(fd)
     hits = []
+    lit = p.value                    # remembered "on" brightness for the toggle
     sys.stdout.write("\x1b[2J\x1b[?25l")
     try:
         tty.setcbreak(fd)
@@ -200,6 +202,9 @@ def run_keys(leds, cell, nr, nc, p, fps):
                 ch = sys.stdin.read(1)
                 if ch in ("\x03", "\x04"):   # Ctrl-C / Ctrl-D
                     break
+                if ch == "\t":               # Tab: blank/restore backlight,
+                    p.value = 0.0 if p.value else lit   # the screen-off preview
+                    continue
                 x, y = hit_xy(leds, ch)
                 hits.append((x, y, now))
             hits = prune(hits, now, p)

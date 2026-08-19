@@ -26,54 +26,63 @@ RGB_MATRIX_EFFECT(RIPPLE)
 #        define RIPPLE_HI_B 0xD3    // highlight: deep purple (9400d3)
 #    endif
 #    ifndef RIPPLE_SPREAD
-#        define RIPPLE_SPREAD 5     // ms of wavefront delay per grid unit
+#        define RIPPLE_SPREAD 8     // ms of wavefront delay per grid unit
 #    endif
 #    ifndef RIPPLE_RADIUS
 #        define RIPPLE_RADIUS 34    // reach in grid units (~15/key)
 #    endif
 #    ifndef RIPPLE_FADE
-#        define RIPPLE_FADE 325     // ms a key stays lit after the wave arrives
+#        define RIPPLE_FADE 325     // ms to blend back to base after arrival
 #    endif
 #    ifndef RIPPLE_FALLOFF
-#        define RIPPLE_FALLOFF 1.4f // distance dimming curve (>=1 = steeper)
+#        define RIPPLE_FALLOFF 1.0f // fade curve (>1 lingers then drops)
 #    endif
 
-// highlight intensity [0,255] for a key `dist` units from a hit `age` ms old.
-// == ripple_intensity() in sim/ripple.py.
+// colour-BLEND amount [0,255] for a key `dist` units from a hit `age` ms old:
+// full at arrival, blending back to base over RIPPLE_FADE. NO distance dimming
+// (brightness is held constant below). == ripple_intensity() in sim/ripple.py.
 static uint8_t ripple_intensity(uint16_t dist, uint16_t age) {
     if (dist > RIPPLE_RADIUS) return 0;
     uint16_t arrival = dist * RIPPLE_SPREAD;
-    if (age < arrival) return 0;              // wavefront not here yet: the delay
+    if (age < arrival) return 0;              // not here yet: this is the delay
     uint16_t since = age - arrival;
     if (since >= RIPPLE_FADE) return 0;
-    float tfade = 1.0f - (float)since / (float)RIPPLE_FADE;   // fade after arrival
-    float dfall = 1.0f - (float)dist / (float)RIPPLE_RADIUS;  // dimmer farther out
-    float inten = tfade * powf(dfall, RIPPLE_FALLOFF);
-    if (inten <= 0.0f) return 0;
-    if (inten >= 1.0f) return 255;
-    return (uint8_t)(inten * 255.0f);
+    float f = 1.0f - (float)since / (float)RIPPLE_FADE;
+    return (uint8_t)(powf(f, RIPPLE_FALLOFF) * 255.0f);
 }
 
 static bool RIPPLE(effect_params_t* params) {
     RGB_MATRIX_USE_LIMITS(led_min, led_max);
+    int v = rgb_matrix_config.hsv.v;          // global brightness
 
     for (uint8_t i = led_min; i < led_max; i++) {
         RGB_MATRIX_TEST_LED_FLAGS();
-        uint8_t best = 0;                     // strongest ripple over all hits
+        led_point_t pt = g_led_config.point[i];
+        int best = 0;                         // strongest ripple over all hits
         for (uint8_t j = 0; j < g_last_hit_tracker.count; j++) {
-            int16_t dx = (int16_t)g_led_config.point[i].x - g_last_hit_tracker.x[j];
-            int16_t dy = (int16_t)g_led_config.point[i].y - g_last_hit_tracker.y[j];
+            int16_t dx = pt.x - g_last_hit_tracker.x[j];
+            int16_t dy = pt.y - g_last_hit_tracker.y[j];
             if (dx < 0) dx = -dx;
             if (dy < 0) dy = -dy;
-            if (dx > RIPPLE_RADIUS || dy > RIPPLE_RADIUS) continue;  // bbox skip
+            if (dx > RIPPLE_RADIUS || dy > RIPPLE_RADIUS) continue; // bbox
             uint16_t dist  = sqrt16((uint16_t)(dx * dx + dy * dy));
-            uint8_t  inten = ripple_intensity(dist, g_last_hit_tracker.tick[j]);
+            int      inten = ripple_intensity(dist, g_last_hit_tracker.tick[j]);
             if (inten > best) best = inten;
         }
-        // blend base -> highlight by best/255 (signed deltas: hi may be < base)
-        uint8_t r = (uint8_t)(RIPPLE_BASE_R + ((RIPPLE_HI_R - RIPPLE_BASE_R) * best) / 255);
-        uint8_t g = (uint8_t)(RIPPLE_BASE_G + ((RIPPLE_HI_G - RIPPLE_BASE_G) * best) / 255);
-        uint8_t b = (uint8_t)(RIPPLE_BASE_B + ((RIPPLE_HI_B - RIPPLE_BASE_B) * best) / 255);
+        // colour blend base -> ripple by best/255 (signed: hi may be < base)
+        int mr = RIPPLE_BASE_R + ((RIPPLE_HI_R - RIPPLE_BASE_R) * best) / 255;
+        int mg = RIPPLE_BASE_G + ((RIPPLE_HI_G - RIPPLE_BASE_G) * best) / 255;
+        int mb = RIPPLE_BASE_B + ((RIPPLE_HI_B - RIPPLE_BASE_B) * best) / 255;
+        // hold brightness constant: scale so the brightest channel == v (the
+        // global brightness), so keys never dim and VialRGB val drives on/off.
+        int m = mr > mg ? mr : mg;
+        if (mb > m) m = mb;
+        uint8_t r = 0, g = 0, b = 0;
+        if (m > 0) {
+            r = (uint8_t)(mr * v / m);
+            g = (uint8_t)(mg * v / m);
+            b = (uint8_t)(mb * v / m);
+        }
         rgb_matrix_set_color(i, r, g, b);
     }
     return rgb_matrix_check_finished_leds(led_max);

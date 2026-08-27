@@ -36,19 +36,22 @@ def hexrgb(s):
 class Params:
     def __init__(self, a):
         self.base = hexrgb(a.base)        # steady background colour
-        self.hi = hexrgb(a.hi)            # ripple colour (full blend)
+        self.hi = hexrgb(a.hi)            # ripple colour (at full blend)
         self.spread = a.spread            # ms of wavefront delay per grid unit
-        self.radius = a.radius            # reach, grid units (~15/key)
+        self.radius = a.radius            # reach, grid units (2 keys ~= 26)
+        self.keystep = a.keystep          # grid units per key; peak halves each
         self.fade = a.fade                # ms to blend back to base
-        self.falloff = a.falloff          # fade curve (>1 lingers then drops)
+        self.falloff = a.falloff          # time-fade curve (>1 lingers)
         self.value = a.value              # constant brightness 0..255
 
 
 def ripple_intensity(dist, age_ms, p):
-    """Colour-BLEND amount [0,1] for a key `dist` units from a hit `age_ms` old:
-    1 the instant the wavefront arrives, fading to 0 (back to base) over `fade`.
-    NO distance dimming -- brightness is held constant in led_color; distance
-    only DELAYS arrival (that is the ripple). THIS IS THE QMK REFERENCE."""
+    """Colour-BLEND amount [0,1] for a key `dist` units from a hit `age_ms` old.
+    Two factors: a distance PEAK that halves per key-step (direct key 1.0,
+    adjacent ~0.5, 2 keys out ~0.25 -> the outer ring is faint) times a time
+    DECAY that blends back to base over `fade`. Brightness stays constant
+    (held in led_color); distance sets the peak and delays arrival (the ripple).
+    THIS IS THE QMK REFERENCE."""
     if dist > p.radius:
         return 0.0
     arrival = dist * p.spread             # the wavefront reaches this key later
@@ -57,7 +60,9 @@ def ripple_intensity(dist, age_ms, p):
         return 0.0
     if since >= p.fade:                   # blended fully back to base
         return 0.0
-    return (1.0 - since / p.fade) ** p.falloff
+    peak = 0.5 ** (dist / p.keystep)      # peak blend halves each key outward
+    decay = (1.0 - since / p.fade) ** p.falloff
+    return peak * decay
 
 
 def lerp(a, b, t):
@@ -220,9 +225,10 @@ def main():
     ap.add_argument("--leds", default=LEDS)
     ap.add_argument("--base", default="0000ff", help="base colour hex (blue)")
     ap.add_argument("--hi", default="9400d3", help="ripple colour hex (purple)")
-    ap.add_argument("--spread", type=float, default=8.0, help="ms delay/unit")
-    ap.add_argument("--radius", type=float, default=34.0, help="reach, units")
-    ap.add_argument("--fade", type=float, default=325.0, help="blend-back ms")
+    ap.add_argument("--spread", type=float, default=5.0, help="ms delay/unit")
+    ap.add_argument("--radius", type=float, default=26.0, help="reach, units")
+    ap.add_argument("--keystep", type=float, default=13.0, help="units per key")
+    ap.add_argument("--fade", type=float, default=216.0, help="blend-back ms")
     ap.add_argument("--falloff", type=float, default=1.0, help="fade curve")
     ap.add_argument("--value", type=float, default=255.0, help="bright 0-255")
     ap.add_argument("--fps", type=float, default=60.0)

@@ -1,4 +1,4 @@
-# kb-qmk-ripple
+# qmk-ripple
 
 A custom QMK RGB-matrix keyboard effect plus its host control, built for the
 Drop CSTM65 but portable to any QMK board with a per-key RGB matrix.
@@ -16,21 +16,21 @@ drag-and-drop `.uf2`), so none of this depends on the vendor.
 
 ## Layout
 
-    bin/kb-qmk-ripple   host control command (off/on/bootloader/install/check)
+    bin/qmk-ripple   host control command (off/on/bootloader/install/check)
     qmk/                the firmware: custom effect, host-control, keymap, build
     sim/                terminal simulator for tuning the effect
     leds/               per-keyboard LED position tables (QMK coord space)
 
-## Host control (`bin/kb-qmk-ripple`)
+## Host control (`bin/qmk-ripple`)
 
 Installed on PATH (see Install). Talks a 1-byte raw-HID protocol to the
 keyboard's firmware:
 
-    kb-qmk-ripple off          LEDs dark   (transient; a power cycle restores)
-    kb-qmk-ripple on           LEDs back
-    kb-qmk-ripple bootloader   jump to the flasher (reflash with no reset pin)
-    kb-qmk-ripple install      install the raw-HID udev access rule (sudo)
-    kb-qmk-ripple check        audit the install ([OK]/[FAIL] + exit code)
+    qmk-ripple off          LEDs dark   (transient; a power cycle restores)
+    qmk-ripple on           LEDs back
+    qmk-ripple bootloader   jump to the flasher (reflash with no reset pin)
+    qmk-ripple install      install the raw-HID udev access rule (sudo)
+    qmk-ripple check        audit the install ([OK]/[FAIL] + exit code)
 
 `off`/`on` are the hook a screen-power daemon (e.g. `panel-power`) calls so the
 keyboard sleeps with the display. `install` grants the session user access to
@@ -46,7 +46,7 @@ EE_CLR-after-first-flash gotcha).
 
     VIAL_QMK=~/src/vial-qmk sh qmk/build.sh drop/cstm65 ripple
 
-Then `kb-qmk-ripple bootloader` (or a reset) and copy the `.uf2` onto the drive.
+Then `qmk-ripple bootloader` (or a reset) and copy the `.uf2` onto the drive.
 
 ## Simulator (`sim/ripple.py`)
 
@@ -63,6 +63,6 @@ peak blend; halves outward), `--fade` (blend-back ms), `--falloff`, `--value`.
 
 ## Install
 
-Standalone: `kb-qmk-ripple install` (once, for the udev rule); put `bin/` on
+Standalone: `qmk-ripple install` (once, for the udev rule); put `bin/` on
 PATH. As a managed package: a provisioner clones this repo and symlinks `bin/`
-into `~/.local/bin`, then runs `kb-qmk-ripple install` for the rule.
+into `~/.local/bin`, then runs `qmk-ripple install` for the rule.

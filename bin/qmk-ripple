@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""kb-qmk-ripple -- host control + setup for the ripple QMK keyboard firmware.
+# Copyright 2026 jello-d
+# SPDX-License-Identifier: Apache-2.0
+"""qmk-ripple -- host control + setup for the ripple QMK keyboard firmware.
 
 A self-contained package command (a provisioner symlinks it onto PATH, but it
 runs standalone too). Subcommands:
@@ -30,12 +32,12 @@ REPORT_LEN = 32  # QMK RAW_EPSIZE
 FF60 = bytes((0x06, 0x60, 0xFF))  # Usage Page 0xFF60 in a report descriptor
 CMDS = {"off": 0x01, "on": 0x02, "bootloader": 0x03}
 
-RULE_PATH = "/etc/udev/rules.d/60-kb-qmk-ripple.rules"
+RULE_PATH = "/etc/udev/rules.d/60-qmk-ripple.rules"
 RULE_TEXT = """\
 # Grant the active-seat user access to the ripple keyboard's raw-HID interface
-# (Drop CSTM65, 359b:0010), so kb-qmk-ripple can send backlight off/on without
+# (Drop CSTM65, 359b:0010), so qmk-ripple can send backlight off/on without
 # root. uaccess = an ACL for the logged-in session user, same mechanism as the
-# ddcutil/i2c and input rules. Installed by `kb-qmk-ripple install`.
+# ddcutil/i2c and input rules. Installed by `qmk-ripple install`.
 KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="%04x", \
 ATTRS{idProduct}=="%04x", TAG+="uaccess"
 """ % (VID, PID)
@@ -74,7 +76,7 @@ def find_node(vid, pid):
 def send(cmd, vid, pid):
     node = find_node(vid, pid)
     if node is None:
-        sys.stderr.write("kb-qmk-ripple: keyboard not found (raw-HID iface)\n")
+        sys.stderr.write("qmk-ripple: keyboard not found (raw-HID iface)\n")
         return 2
     report = bytes([0x00, CMDS[cmd]] + [0] * (REPORT_LEN - 1))
     try:
@@ -84,7 +86,7 @@ def send(cmd, vid, pid):
         finally:
             os.close(fd)
     except OSError as e:
-        sys.stderr.write("kb-qmk-ripple: %s: %s\n" % (node, e))
+        sys.stderr.write("qmk-ripple: %s: %s\n" % (node, e))
         return 1
     return 0
 
@@ -95,9 +97,9 @@ def do_install():
     if os.path.exists(RULE_PATH):
         with open(RULE_PATH) as f:
             if f.read() == RULE_TEXT:
-                print("kb-qmk-ripple: udev rule already current")
+                print("qmk-ripple: udev rule already current")
                 return 0
-    print("kb-qmk-ripple: installing %s (sudo)" % RULE_PATH)
+    print("qmk-ripple: installing %s (sudo)" % RULE_PATH)
     try:
         p = subprocess.run(["sudo", "tee", RULE_PATH], input=RULE_TEXT,
                            text=True, stdout=subprocess.DEVNULL)
@@ -107,9 +109,9 @@ def do_install():
         subprocess.run(["sudo", "udevadm", "trigger",
                        "--subsystem-match=hidraw"], check=True)
     except (OSError, subprocess.CalledProcessError) as e:
-        sys.stderr.write("kb-qmk-ripple: install failed: %s\n" % e)
+        sys.stderr.write("qmk-ripple: install failed: %s\n" % e)
         return 1
-    print("kb-qmk-ripple: udev rule installed")
+    print("qmk-ripple: udev rule installed")
     return 0
 
 
@@ -133,7 +135,7 @@ def do_check(vid, pid):
 
 
 def main():
-    ap = argparse.ArgumentParser(prog="kb-qmk-ripple")
+    ap = argparse.ArgumentParser(prog="qmk-ripple")
     ap.add_argument("cmd", choices=list(CMDS) + ["install", "check"])
     ap.add_argument("--vid", default="%04x" % VID)
     ap.add_argument("--pid", default="%04x" % PID)

@@ -32,7 +32,10 @@ RGB_MATRIX_EFFECT(RIPPLE)
 #        define RIPPLE_RADIUS 26    // reach in grid units (2 keys ~= 26)
 #    endif
 #    ifndef RIPPLE_KEYSTEP
-#        define RIPPLE_KEYSTEP 13.0f // grid units per key; peak halves each
+#        define RIPPLE_KEYSTEP 13.0f // grid units per key
+#    endif
+#    ifndef RIPPLE_PEAK
+#        define RIPPLE_PEAK 0.33f    // 1st-ring peak blend; ^ring outward
 #    endif
 #    ifndef RIPPLE_FADE
 #        define RIPPLE_FADE 216     // ms to blend back to base after arrival
@@ -42,9 +45,9 @@ RGB_MATRIX_EFFECT(RIPPLE)
 #    endif
 
 // colour-BLEND amount [0,255] for a key `dist` units from a hit `age` ms old:
-// a distance PEAK that halves per key-step (direct 1.0, adjacent ~0.5, 2 keys
-// ~0.25) times a time DECAY back to base over RIPPLE_FADE. Brightness is held
-// constant below. == ripple_intensity() in sim/ripple.py.
+// a distance PEAK of RIPPLE_PEAK per key-step (direct 1.0, adjacent = PEAK,
+// 2 keys = PEAK^2) times a time DECAY back to base over RIPPLE_FADE. Brightness
+// is held constant below. == ripple_intensity() in sim/ripple.py.
 static uint8_t ripple_intensity(uint16_t dist, uint16_t age) {
     if (dist > RIPPLE_RADIUS) return 0;
     uint16_t arrival = dist * RIPPLE_SPREAD;
@@ -52,7 +55,7 @@ static uint8_t ripple_intensity(uint16_t dist, uint16_t age) {
     uint16_t since = age - arrival;
     if (since >= RIPPLE_FADE) return 0;
     float t    = 1.0f - (float)since / (float)RIPPLE_FADE;
-    float peak = powf(0.5f, (float)dist / RIPPLE_KEYSTEP);
+    float peak = powf(RIPPLE_PEAK, (float)dist / RIPPLE_KEYSTEP);
     return (uint8_t)(peak * powf(t, RIPPLE_FALLOFF) * 255.0f);
 }
 

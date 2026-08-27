@@ -1,5 +1,0 @@
-# Grant the active-seat user access to the ripple keyboard's raw-HID interface
-# (Drop CSTM65, 359b:0010), so kbd-rgb can send backlight off/on without root.
-# uaccess = the logged-in session user gets an ACL on the node, same mechanism
-# as the ddcutil/i2c and input rules. Scoped to the hidraw subsystem.
-KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="359b", ATTRS{idProduct}=="0010", TAG+="uaccess"

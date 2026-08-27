@@ -1,0 +1,70 @@
+#!/usr/bin/env python3
+"""kbd-rgb -- host control of the ripple firmware's RGB backlight over raw HID.
+
+Talks the 1-byte command protocol in qmk/hostctl.c to the keyboard's 0xFF60
+raw-HID interface:
+    off         0x01  disable the matrix (LEDs dark; transient, noeeprom)
+    on          0x02  re-enable the matrix
+    bootloader  0x03  jump to the flasher (so a reflash needs no reset pin)
+
+Usage: kbd-rgb {off|on|bootloader} [--vid 0x359b] [--pid 0x0010]
+
+Needs write access to the raw-HID hidraw node (a udev uaccess rule; see
+host/60-ripple-kbd.rules). Exit 0 on success, 2 if the keyboard is not found
+(so a caller like panel-power can treat "no keyboard" as a harmless no-op).
+"""
+import argparse
+import sys
+
+RAW_USAGE_PAGE = 0xFF60
+RAW_USAGE = 0x61
+REPORT_LEN = 32  # QMK RAW_EPSIZE
+
+CMDS = {"off": 0x01, "on": 0x02, "bootloader": 0x03}
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("cmd", choices=CMDS)
+    ap.add_argument("--vid", default="0x359b")
+    ap.add_argument("--pid", default="0x0010")
+    a = ap.parse_args()
+    vid, pid = int(a.vid, 0), int(a.pid, 0)
+
+    try:
+        import hid
+    except ImportError:
+        sys.stderr.write("kbd-rgb: python3-hid (hidapi) not installed\n")
+        return 3
+
+    # Find the raw-HID interface specifically (a keyboard exposes several HID
+    # interfaces; only the 0xFF60 one accepts these commands).
+    path = None
+    for d in hid.enumerate(vid, pid):
+        if (d.get("usage_page") == RAW_USAGE_PAGE
+                and d.get("usage") == RAW_USAGE):
+            path = d["path"]
+            break
+    if path is None:
+        sys.stderr.write("kbd-rgb: ripple keyboard not found (raw-HID iface)\n")
+        return 2
+
+    dev = hid.device()
+    try:
+        dev.open_path(path)
+        # hidapi report: leading 0x00 report id, then the REPORT_LEN payload.
+        payload = bytes([CMDS[a.cmd]] + [0] * (REPORT_LEN - 1))
+        dev.write(b"\x00" + payload)
+    except (OSError, ValueError) as e:
+        sys.stderr.write("kbd-rgb: %s\n" % e)
+        return 1
+    finally:
+        try:
+            dev.close()
+        except Exception:
+            pass
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -66,3 +66,10 @@ peak blend; halves outward), `--fade` (blend-back ms), `--falloff`, `--value`.
 Standalone: `qmk-ripple install` (once, for the udev rule); put `bin/` on
 PATH. As a managed package: a provisioner clones this repo and symlinks `bin/`
 into `~/.local/bin`, then runs `qmk-ripple install` for the rule.
+
+## Development
+
+An 80-column limit is enforced by a tracked pre-commit hook. Enable it once
+per clone:
+
+    git config core.hooksPath .githooks

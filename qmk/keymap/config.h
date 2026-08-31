@@ -1,8 +1,8 @@
 #pragma once
 
 // The ripple effect reads g_last_hit_tracker (keypress positions + ages);
-// RGB_MATRIX_KEYPRESSES enables that tracking (built-in reactive effects rely on
-// it too, but define it so the effect works even if those are trimmed).
+// RGB_MATRIX_KEYPRESSES enables that tracking (built-in reactive effects
+// rely on it too, but define it so the effect works even if those are trimmed).
 #define RGB_MATRIX_KEYPRESSES
 
 // Boot straight into the custom effect.

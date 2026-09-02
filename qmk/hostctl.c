@@ -26,7 +26,13 @@ void raw_hid_receive(uint8_t *data, uint8_t length) {
             break;
         case HOSTCTL_BOOTLOADER:
             raw_hid_send(data, length); // ack before we vanish
-            bootloader_jump();          // does not return
+            // reset_keyboard(), NOT a bare bootloader_jump(): the jump alone
+            // skips shutdown_quantum(), so shutdown_kb/shutdown_user never
+            // run and the red indicator below never paints (observed: the
+            // board entered the bootloader with the keys still blue).
+            // reset_keyboard() runs the shutdown hooks, waits 250ms so the
+            // IS31FL3733 latches the colour, and only then jumps.
+            reset_keyboard(); // does not return
             return;
         default:
             break;
@@ -47,7 +53,9 @@ void raw_hid_receive(uint8_t *data, uint8_t length) {
 // indicator colour and FLUSH it: the IS31FL3733 latches its PWM registers and
 // holds them with no firmware running, so the colour persists THROUGH the
 // bootloader -- a clear "I am in flashing mode". A plain reset that skips
-// firmware won't show it, but the deliberate paths all pass here.
+// firmware won't show it. Reaching here at all requires the caller to go
+// through shutdown_quantum() (reset_keyboard does; a bare bootloader_jump()
+// does NOT) -- see the 0x03 case above, which got that wrong once.
 bool shutdown_user(bool jump_to_bootloader) {
     if (jump_to_bootloader) {
         rgb_matrix_set_color_all(RGB_BOOT_R, RGB_BOOT_G, RGB_BOOT_B);

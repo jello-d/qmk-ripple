@@ -65,6 +65,18 @@ do_install() {
 do_check() {
   _rc=0
   _n=0
+  # The commands import lib/qmkripple.py by resolving their own path. If that
+  # is missing they still EXIST and `command -v` still finds them -- they just
+  # fail at startup. A caller like panel-power runs them with output discarded
+  # and the exit code ignored (deliberately: a dimming hiccup must never wedge
+  # a lock screen), so that failure is INVISIBLE downstream and shows up only
+  # as a keyboard that quietly stopped blanking. Hence: check it here.
+  if [ -f "$HERE/lib/qmkripple.py" ]; then
+    echo "[OK]   lib/qmkripple.py present"
+  else
+    echo "[FAIL] lib/qmkripple.py missing -- every command will fail to start"
+    _rc=1
+  fi
   for b in "$HERE"/bin/*; do
     [ -f "$b" ] && [ -x "$b" ] || continue
     _n=$((_n + 1))
@@ -77,6 +89,12 @@ do_check() {
       # commands on PATH are someone else's copy and every other check lies.
       echo "[FAIL] $_l does not point into this checkout"
       echo "       ($(readlink -f "$_l") != $(readlink -f "$b"))"
+      _rc=1
+    elif ! "$_l" --help >/dev/null 2>&1; then
+      # Present and correctly linked, but does not RUN. Catches a broken
+      # layout, a bad interpreter, a syntax error -- all of which a caller
+      # that ignores exit codes would swallow.
+      echo "[FAIL] $_l is linked but does not run (try: $_l --help)"
       _rc=1
     else
       echo "[OK]   $_l"

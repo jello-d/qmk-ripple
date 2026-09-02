@@ -16,7 +16,7 @@ drag-and-drop `.uf2`), so none of this depends on the vendor.
 
 ## Layout
 
-    bin/qmk-ripple        routine control (off/on only); never root
+    bin/qmk-ripple        control + tuning (off/on, mode, get/set); no root
     bin/qmk-ripple-admin  build/flash/install/check/selftest; sometimes root
     lib/qmkripple.py      shared constants + device discovery for both
     qmk/                the firmware: custom effect, host-control, keymap, build
@@ -29,12 +29,17 @@ drag-and-drop `.uf2`), so none of this depends on the vendor.
 runs it on every blank and unblank, so it is small, dependency-free, and has no
 privileged code in it at all.
 
-    qmk-ripple off          LEDs dark (transient; see below)
-    qmk-ripple on           LEDs back
+    qmk-ripple off | on              backlight (transient; see below)
+    qmk-ripple mode flat | ripple    plain colour, or the reactive effect
+    qmk-ripple show                  every parameter, with its range
+    qmk-ripple get NAME
+    qmk-ripple set NAME VALUE        live, RAM only
+    qmk-ripple save                  commit the current values to EEPROM
+    qmk-ripple reset                 back to the compiled-in defaults
 
-That is the whole surface. The bootloader jump is NOT here: it is a flashing
-operation, and its byte has teeth (see the collision table below), so the
-command that runs on every screen blank must not be able to send it.
+The bootloader jump is NOT here: it is a flashing operation, and its byte has
+teeth (see the collision table below), so the command that runs on every
+screen blank must not be able to send it.
 
 `bin/qmk-ripple-admin` is the rare half, allowed to be slow, chatty and
 privileged:
@@ -55,6 +60,38 @@ enumeration, so a reboot or replug always comes back lit even if nothing ever
 sends `on`. That matters because a reboot is *not* a power cycle for a USB
 port: the port holds 5V, the MCU never resets, and an earlier version of this
 firmware came back dark with the session that owed it an `on` long gone.
+
+## Tuning
+
+Every knob the effect has is settable at runtime, so retuning the look needs
+no reflash:
+
+    qmk-ripple show
+    PARAM     VALUE        RANGE              MEANING
+    base      0000ff       000000 .. ffffff   steady base colour (hex rrggbb)
+    hi        9400d3       000000 .. ffffff   ripple highlight colour
+    spread    5            0 .. 1000          ms of delay per grid unit
+    radius    26           0 .. 255           reach in grid units
+    peak      0.33         0.01 .. 1          first-ring blend (halves out)
+    fade      216          1 .. 5000          ms to blend back to base
+    falloff   1            0.01 .. 10         time curve; >1 lingers
+    keystep   13           1 .. 100           grid units per key
+    mode      ripple       flat | ripple      plain colour, or reactive
+
+A `set` is **transient**: it lands in RAM only, so sweeping a value costs no
+flash wear and an experiment you dislike dies at the next power cycle. `save`
+commits the current values to EEPROM; `reset` restores the compiled-in
+defaults to RAM, and persisting that is another deliberate `save`.
+
+    qmk-ripple set hi ff0066      # live, try it
+    qmk-ripple set radius 40
+    qmk-ripple save               # keep it
+    qmk-ripple mode flat          # ripple off: just the base colour
+
+Ranges are reported BY the firmware with every `get`, so the host never
+carries a second copy that could drift. An out-of-range value is refused, not
+silently clamped -- a quietly adjusted value would be a lie about what was
+asked for.
 
 ## First flash (bootstrap)
 
@@ -84,8 +121,19 @@ bytes collide, and not harmlessly:
 | 0x03 | bootloader | `id_set_keyboard_value` (**a write**) |
 
 So the tools never send control bytes to a board just because the interface is
-there, and `check` reports what it can prove rather than claiming ripple is
-running. On an unconfirmed board, flash with `--manual`.
+there. On an unconfirmed board, flash with `--manual`.
+
+Everything added after those three bytes is namespaced behind a `0x52` prefix,
+which VIA does not define: a v2 command aimed at a VIA board lands in its
+`id_unhandled` branch and does nothing. That is also what makes identification
+trustworthy -- only this firmware answers `0x52 0x00` with the magic `RPL`, so
+`qmk-ripple-admin check` can positively confirm the firmware instead of
+guessing from the presence of an interface:
+
+    [OK]   ripple firmware confirmed (protocol v1, config v1, 9 params)
+
+An older ripple build echoes the command back without the magic, so it is
+distinguishable from a current one rather than being mistaken for it.
 
 ## Firmware (`qmk/`)
 

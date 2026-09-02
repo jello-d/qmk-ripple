@@ -14,6 +14,7 @@ sysfs reads plus a write to a hidraw node.
 """
 import glob
 import os
+import select
 import subprocess
 import time
 
@@ -173,6 +174,186 @@ def send(cmd, vid=VID, pid=PID):
     except OSError as e:
         raise Error("%s: %s" % (node, e))
     return node
+
+
+# --- the namespaced v2 protocol ----------------------------------------------
+# Every v2 message is [0x52][subcmd][payload]. 0x52 is undefined in VIA's
+# command space, so one of these aimed at a VIA board hits its id_unhandled
+# branch and does nothing -- unlike the flat legacy bytes, where our 0x03 is
+# VIA's id_set_keyboard_value, a WRITE. That is also what makes IDENTIFY
+# trustworthy: only this firmware answers with the magic.
+PREFIX = 0x52
+SUB_IDENTIFY, SUB_GET, SUB_SET, SUB_SAVE, SUB_RESET = 0x00, 0x10, 0x11, \
+    0x12, 0x13
+MAGIC = b"RPL"
+
+ST_OK, ST_EBADID, ST_ERANGE, ST_EBADCMD = 0x00, 0x01, 0x02, 0x03
+STATUS_TEXT = {
+    ST_OK: "ok",
+    ST_EBADID: "no such parameter",
+    ST_ERANGE: "value out of range",
+    ST_EBADCMD: "no such subcommand",
+}
+
+# name -> (wire id, codec). The codec is only a display/parse convention; the
+# firmware owns the RANGES and reports them with every get, so this table can
+# never disagree with what the board will actually accept.
+PARAMS = [
+    ("base",    0x01, "color"),
+    ("hi",      0x02, "color"),
+    ("spread",  0x03, "int"),
+    ("radius",  0x04, "int"),
+    ("peak",    0x05, "pct"),
+    ("fade",    0x06, "int"),
+    ("falloff", 0x07, "pct"),
+    ("keystep", 0x08, "x100"),
+    ("mode",    0x09, "mode"),
+]
+PARAM_HELP = {
+    "base": "steady base colour (hex rrggbb)",
+    "hi": "ripple highlight colour (hex rrggbb)",
+    "spread": "ms of wavefront delay per grid unit",
+    "radius": "reach in grid units (2 keys ~= 26)",
+    "peak": "first-ring blend, 0-1 (halves outward)",
+    "fade": "ms to blend back to the base colour",
+    "falloff": "time-fade curve; >1 lingers then drops",
+    "keystep": "grid units per key",
+    "mode": "flat (base colour only) or ripple",
+}
+MODES = {"flat": 0, "ripple": 1}
+
+
+def param(name):
+    for n, pid, codec in PARAMS:
+        if n == name:
+            return pid, codec
+    raise Error("unknown parameter %r (try `show`)" % name)
+
+
+def decode(codec, v):
+    """Wire integer -> display string."""
+    if codec == "color":
+        return "%06x" % v
+    if codec == "pct":
+        return "%g" % (v / 100.0)
+    if codec == "x100":
+        return "%g" % (v / 100.0)
+    if codec == "mode":
+        return {0: "flat", 1: "ripple"}.get(v, str(v))
+    return str(v)
+
+
+def encode(codec, s):
+    """Display string -> wire integer. Raises Error on nonsense."""
+    try:
+        if codec == "color":
+            return int(s.lstrip("#"), 16)
+        if codec in ("pct", "x100"):
+            return int(round(float(s) * 100))
+        if codec == "mode":
+            if s in MODES:
+                return MODES[s]
+            raise ValueError(s)
+        return int(s, 0)
+    except ValueError:
+        raise Error("cannot read %r as a %s value" % (s, codec))
+
+
+def xfer(payload, vid=VID, pid=PID, timeout=1.0):
+    """Send a report and return the firmware's 32-byte reply.
+
+    The control path (off/on) is deliberately write-only and never waits; this
+    is for the v2 commands, which are request/response.
+    """
+    node = find_node(vid, pid)
+    if node is None:
+        raise NotFound("keyboard not found (no 0xFF60 raw-HID interface)")
+    if len(payload) > REPORT_LEN:
+        raise Error("payload longer than one report")
+    buf = bytes(payload) + bytes(REPORT_LEN - len(payload))
+    try:
+        fd = os.open(node, os.O_RDWR)
+    except OSError as e:
+        raise Error("%s: %s" % (node, e))
+    try:
+        os.write(fd, b"\x00" + buf)
+        deadline = time.time() + timeout
+        while True:
+            left = deadline - time.time()
+            if left <= 0:
+                raise Error("no reply within %.1fs" % timeout)
+            ready, _, _ = select.select([fd], [], [], left)
+            if not ready:
+                continue
+            data = os.read(fd, REPORT_LEN)
+            if data:
+                return data
+    except OSError as e:
+        raise Error("%s: %s" % (node, e))
+    finally:
+        os.close(fd)
+
+
+def _u32(b, off):
+    return int.from_bytes(b[off:off + 4], "little")
+
+
+def identify(vid=VID, pid=PID):
+    """Positively confirm the ripple firmware. Returns a dict, or raises.
+
+    This is the ONLY reliable check: an 0xFF60 interface alone proves nothing
+    (VIA has one too), and an older ripple build echoes any command back
+    without the magic, so it is distinguishable from a current one.
+    """
+    reply = xfer([PREFIX, SUB_IDENTIFY], vid, pid)
+    if reply[0] != PREFIX or reply[4:7] != MAGIC:
+        raise Error(
+            "this board did not answer the ripple identify.\n"
+            "  It is either running other raw-HID firmware (VIA answers on\n"
+            "  the same usage page), or an older ripple build from before the\n"
+            "  tuning protocol. Reflash to get these commands.")
+    return {"proto": reply[7], "config_version": reply[8],
+            "nparams": reply[9]}
+
+
+def check_status(reply, what):
+    st = reply[2]
+    if st != ST_OK:
+        raise Error("%s: %s" % (what, STATUS_TEXT.get(st, "status %d" % st)))
+    return reply
+
+
+def get_param(name, vid=VID, pid=PID):
+    """Return (value, min, max) as wire integers."""
+    pid_, _codec = param(name)
+    r = xfer([PREFIX, SUB_GET, pid_], vid, pid)
+    check_status(r, "get %s" % name)
+    return _u32(r, 4), _u32(r, 8), _u32(r, 12)
+
+
+def set_param(name, text, vid=VID, pid=PID):
+    """Set from a display-form string. Returns the stored value (wire int)."""
+    pid_, codec = param(name)
+    v = encode(codec, text)
+    r = xfer([PREFIX, SUB_SET, pid_,
+              v & 0xFF, (v >> 8) & 0xFF, (v >> 16) & 0xFF, (v >> 24) & 0xFF],
+             vid, pid)
+    if r[2] == ST_ERANGE:
+        # The firmware refuses rather than clamping, so report exactly what was
+        # asked for and what is allowed instead of pretending it worked.
+        lo, hi = _u32(r, 8), _u32(r, 12)
+        raise Error("%s: %s is out of range (allowed %s..%s)"
+                    % (name, text, decode(codec, lo), decode(codec, hi)))
+    check_status(r, "set %s" % name)
+    return _u32(r, 4)
+
+
+def save_params(vid=VID, pid=PID):
+    check_status(xfer([PREFIX, SUB_SAVE], vid, pid), "save")
+
+
+def reset_params(vid=VID, pid=PID):
+    check_status(xfer([PREFIX, SUB_RESET], vid, pid), "reset")
 
 
 # --- the UF2 bootloader drive ------------------------------------------------

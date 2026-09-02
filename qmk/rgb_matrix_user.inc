@@ -13,50 +13,29 @@ RGB_MATRIX_EFFECT(RIPPLE)
 #ifdef RGB_MATRIX_CUSTOM_EFFECT_IMPLS
 
 #    include <math.h>
+#    include "ripple_config.h"
 
-// --- tunables (defaults match the simulator's v1) ---------------------------
-#    ifndef RIPPLE_BASE_R
-#        define RIPPLE_BASE_R 0x00
-#        define RIPPLE_BASE_G 0x00
-#        define RIPPLE_BASE_B 0xFF  // base: blue (0000ff)
-#    endif
-#    ifndef RIPPLE_HI_R
-#        define RIPPLE_HI_R 0x94
-#        define RIPPLE_HI_G 0x00
-#        define RIPPLE_HI_B 0xD3    // highlight: deep purple (9400d3)
-#    endif
-#    ifndef RIPPLE_SPREAD
-#        define RIPPLE_SPREAD 5     // ms of wavefront delay per grid unit
-#    endif
-#    ifndef RIPPLE_RADIUS
-#        define RIPPLE_RADIUS 26    // reach in grid units (2 keys ~= 26)
-#    endif
-#    ifndef RIPPLE_KEYSTEP
-#        define RIPPLE_KEYSTEP 13.0f // grid units per key
-#    endif
-#    ifndef RIPPLE_PEAK
-#        define RIPPLE_PEAK 0.33f    // 1st-ring peak blend; ^ring outward
-#    endif
-#    ifndef RIPPLE_FADE
-#        define RIPPLE_FADE 216     // ms to blend back to base after arrival
-#    endif
-#    ifndef RIPPLE_FALLOFF
-#        define RIPPLE_FALLOFF 1.0f // time-fade curve (>1 lingers then drops)
-#    endif
+// The tunables used to be #defines consumed right here. They now live in
+// ripple_config (see ripple_config.h), so the host can retune the effect over
+// raw HID with no reflash; the #define values survive as its boot defaults, so
+// a keymap's config.h still sets the look exactly as it used to.
 
 // colour-BLEND amount [0,255] for a key `dist` units from a hit `age` ms old:
-// a distance PEAK of RIPPLE_PEAK per key-step (direct 1.0, adjacent = PEAK,
-// 2 keys = PEAK^2) times a time DECAY back to base over RIPPLE_FADE. Brightness
-// is held constant below. == ripple_intensity() in sim/ripple.py.
+// a distance PEAK per key-step (direct 1.0, adjacent = peak, 2 keys = peak^2)
+// times a time DECAY back to base over `fade`. Brightness is held constant
+// below. == ripple_intensity() in sim/ripple.py.
 static uint8_t ripple_intensity(uint16_t dist, uint16_t age) {
-    if (dist > RIPPLE_RADIUS) return 0;
-    uint16_t arrival = dist * RIPPLE_SPREAD;
+    if (dist > ripple_config.radius) return 0;
+    uint16_t arrival = dist * ripple_config.spread;
     if (age < arrival) return 0;              // not here yet: this is the delay
     uint16_t since = age - arrival;
-    if (since >= RIPPLE_FADE) return 0;
-    float t    = 1.0f - (float)since / (float)RIPPLE_FADE;
-    float peak = powf(RIPPLE_PEAK, (float)dist / RIPPLE_KEYSTEP);
-    return (uint8_t)(peak * powf(t, RIPPLE_FALLOFF) * 255.0f);
+    if (since >= ripple_config.fade) return 0;
+    float t       = 1.0f - (float)since / (float)ripple_config.fade;
+    float peak    = (float)ripple_config.peak_x100 / 100.0f;
+    float keystep = (float)ripple_config.keystep_x100 / 100.0f;
+    float falloff = (float)ripple_config.falloff_x100 / 100.0f;
+    float amount  = powf(peak, (float)dist / keystep);
+    return (uint8_t)(amount * powf(t, falloff) * 255.0f);
 }
 
 static bool RIPPLE(effect_params_t* params) {
@@ -67,20 +46,29 @@ static bool RIPPLE(effect_params_t* params) {
         RGB_MATRIX_TEST_LED_FLAGS();
         led_point_t pt = g_led_config.point[i];
         int best = 0;                         // strongest ripple over all hits
-        for (uint8_t j = 0; j < g_last_hit_tracker.count; j++) {
-            int16_t dx = pt.x - g_last_hit_tracker.x[j];
-            int16_t dy = pt.y - g_last_hit_tracker.y[j];
-            if (dx < 0) dx = -dx;
-            if (dy < 0) dy = -dy;
-            if (dx > RIPPLE_RADIUS || dy > RIPPLE_RADIUS) continue; // bbox
-            uint16_t dist  = sqrt16((uint16_t)(dx * dx + dy * dy));
-            int      inten = ripple_intensity(dist, g_last_hit_tracker.tick[j]);
-            if (inten > best) best = inten;
+        // FLAT mode skips the hit scan entirely: best stays 0, so every key
+        // renders the base colour and keypresses do nothing. That is the
+        // "ripple off, plain colour" toggle, and it is also the cheap path.
+        if (ripple_config.mode != RIPPLE_MODE_FLAT) {
+            int16_t reach = (int16_t)ripple_config.radius;
+            for (uint8_t j = 0; j < g_last_hit_tracker.count; j++) {
+                int16_t dx = pt.x - g_last_hit_tracker.x[j];
+                int16_t dy = pt.y - g_last_hit_tracker.y[j];
+                if (dx < 0) dx = -dx;
+                if (dy < 0) dy = -dy;
+                if (dx > reach || dy > reach) continue;             // bbox
+                uint16_t dist = sqrt16((uint16_t)(dx * dx + dy * dy));
+                int inten =
+                    ripple_intensity(dist, g_last_hit_tracker.tick[j]);
+                if (inten > best) best = inten;
+            }
         }
         // colour blend base -> ripple by best/255 (signed: hi may be < base)
-        int mr = RIPPLE_BASE_R + ((RIPPLE_HI_R - RIPPLE_BASE_R) * best) / 255;
-        int mg = RIPPLE_BASE_G + ((RIPPLE_HI_G - RIPPLE_BASE_G) * best) / 255;
-        int mb = RIPPLE_BASE_B + ((RIPPLE_HI_B - RIPPLE_BASE_B) * best) / 255;
+        int br = ripple_config.base_r, bg = ripple_config.base_g;
+        int bb = ripple_config.base_b;
+        int mr = br + ((ripple_config.hi_r - br) * best) / 255;
+        int mg = bg + ((ripple_config.hi_g - bg) * best) / 255;
+        int mb = bb + ((ripple_config.hi_b - bb) * best) / 255;
         // hold brightness constant: scale so the brightest channel == v (the
         // global brightness), so keys never dim and VialRGB val drives on/off.
         int m = mr > mg ? mr : mg;

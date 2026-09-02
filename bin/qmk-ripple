@@ -7,11 +7,25 @@ The HOT PATH: panel-power runs this on every screen blank and unblank, so it
 stays small, dependency-free, and NEVER needs root (the udev rule installed by
 `qmk-ripple-admin install` grants the session user the hidraw node).
 
-    qmk-ripple off   LEDs dark (transient; see below)
-    qmk-ripple on    LEDs back
+    qmk-ripple off | on              backlight (transient; see below)
+    qmk-ripple mode flat | ripple    plain colour, or the reactive effect
+    qmk-ripple show                  every parameter, with its range
+    qmk-ripple get NAME
+    qmk-ripple set NAME VALUE        live, RAM only
+    qmk-ripple save                  commit the current values to EEPROM
+    qmk-ripple reset                 back to the compiled-in defaults
 
-That is the WHOLE surface, and deliberately so. Setup, flashing, auditing --
-and the bootloader jump -- live in a separate command, qmk-ripple-admin.
+Setup, flashing, auditing -- and the bootloader jump -- live in a separate
+command, qmk-ripple-admin.
+
+TUNING IS TRANSIENT until you `save`, so sweeping a value costs no flash wear,
+an experiment you dislike dies at the next power cycle, and the saved config
+stays a known-good fallback. `reset` returns the compiled-in defaults to RAM;
+persisting that is another deliberate `save`.
+
+off/on are write-only and never wait for a reply, because panel-power runs
+them on every blank. The tuning verbs are request/response and confirm the
+firmware first.
 
 The jump is not here even though it is the same 1-byte protocol and needs no
 root, because it is a flashing operation rather than routine control, and it
@@ -54,24 +68,83 @@ why 0xFF60 is not proof
 """ % (qr.FIRST_FLASH_NOTE, qr.USAGE_PAGE_WARNING)
 
 
+def do_show(vid, pid):
+    """Every parameter with its value and the firmware's own limits."""
+    qr.identify(vid, pid)
+    print("%-9s %-12s %-18s %s" % ("PARAM", "VALUE", "RANGE", "MEANING"))
+    for name, _id, codec in qr.PARAMS:
+        v, lo, hi = qr.get_param(name, vid, pid)
+        rng = "%s .. %s" % (qr.decode(codec, lo), qr.decode(codec, hi))
+        if codec == "mode":
+            rng = "flat | ripple"
+        print("%-9s %-12s %-18s %s"
+              % (name, qr.decode(codec, v), rng, qr.PARAM_HELP.get(name, "")))
+    print("\nChanges are live but NOT saved; `qmk-ripple save` commits them.")
+    return 0
+
+
 def main():
     ap = argparse.ArgumentParser(
         prog="qmk-ripple",
-        description="Control the ripple keyboard backlight (no root needed).",
+        description="Control and tune the ripple keyboard backlight "
+                    "(no root needed).",
         epilog=EPILOG,
         formatter_class=argparse.RawDescriptionHelpFormatter)
-    # NOT list(qr.CMDS): that is the wire protocol, which includes the
-    # bootloader jump. This command exposes only the two safe, routine verbs.
-    ap.add_argument("cmd", choices=["off", "on"],
-                    help="off: LEDs dark; on: LEDs back. "
-                         "(the bootloader jump is `qmk-ripple-admin "
-                         "bootloader`)")
     ap.add_argument("--vid", default="%04x" % qr.VID)
     ap.add_argument("--pid", default="%04x" % qr.PID)
+    sub = ap.add_subparsers(dest="cmd", required=True)
+
+    # The two legacy verbs. NOT the bootloader jump: that is a flashing
+    # operation and its byte has teeth (VIA reads 0x03 as a WRITE), so it
+    # lives in qmk-ripple-admin.
+    sub.add_parser("off", help="LEDs dark (transient)")
+    sub.add_parser("on", help="LEDs back")
+
+    m = sub.add_parser("mode", help="flat colour, or the reactive ripple")
+    m.add_argument("value", choices=sorted(qr.MODES))
+
+    sub.add_parser("show", help="all parameters, values and ranges")
+    g = sub.add_parser("get", help="read one parameter")
+    g.add_argument("name")
+    s = sub.add_parser("set", help="set one parameter (live, not saved)")
+    s.add_argument("name")
+    s.add_argument("value")
+    sub.add_parser("save", help="commit the current values to EEPROM")
+    sub.add_parser("reset", help="restore the compiled-in defaults (to RAM)")
+
     a = ap.parse_args()
+    vid, pid = int(a.vid, 16), int(a.pid, 16)
 
     try:
-        qr.send(a.cmd, int(a.vid, 16), int(a.pid, 16))
+        if a.cmd in ("off", "on"):
+            qr.send(a.cmd, vid, pid)
+        elif a.cmd == "show":
+            return do_show(vid, pid)
+        elif a.cmd == "mode":
+            qr.identify(vid, pid)
+            qr.set_param("mode", a.value, vid, pid)
+            print("mode: %s" % a.value)
+        elif a.cmd == "get":
+            qr.identify(vid, pid)
+            _id, codec = qr.param(a.name)
+            v, lo, hi = qr.get_param(a.name, vid, pid)
+            print("%s = %s   (range %s .. %s)"
+                  % (a.name, qr.decode(codec, v),
+                     qr.decode(codec, lo), qr.decode(codec, hi)))
+        elif a.cmd == "set":
+            qr.identify(vid, pid)
+            _id, codec = qr.param(a.name)
+            v = qr.set_param(a.name, a.value, vid, pid)
+            print("%s = %s   (live; `qmk-ripple save` to keep it)"
+                  % (a.name, qr.decode(codec, v)))
+        elif a.cmd == "save":
+            qr.identify(vid, pid)
+            qr.save_params(vid, pid)
+            print("saved to EEPROM")
+        elif a.cmd == "reset":
+            qr.identify(vid, pid)
+            qr.reset_params(vid, pid)
+            print("defaults restored (live; `qmk-ripple save` to keep them)")
     except qr.NotFound as e:
         sys.stderr.write("qmk-ripple: %s\n" % e)
         sys.stderr.write("  If this board still has stock firmware, that is "

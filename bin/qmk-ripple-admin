@@ -292,11 +292,20 @@ def do_check():
                 "`flash --manual`.")
     elif os.access(node, os.W_OK):
         say("[OK]   raw-HID interface present and writable (%s)" % node)
-        say("       NOTE: this does not prove the ripple firmware is running "
-            "(0xFF60")
-        say("       is the shared QMK/VIA page). It proves only that SOME "
-            "raw-HID")
-        say("       firmware is answering.")
+        # 0xFF60 alone proves nothing (VIA shares the page), so ASK the board.
+        # Only this firmware answers the namespaced identify with the magic.
+        try:
+            info = qr.identify()
+            say("[OK]   ripple firmware confirmed (protocol v%d, config v%d, "
+                "%d params)" % (info["proto"], info["config_version"],
+                                info["nparams"]))
+        except qr.Error:
+            say("[WARN] the board did NOT answer the ripple identify")
+            say("       Either it runs other raw-HID firmware (VIA answers on "
+                "the same")
+            say("       page), or it is an older ripple build from before the "
+                "tuning")
+            say("       protocol. Reflash to get `set`/`get`/`save`.")
     else:
         say("[FAIL] raw-HID node present but not writable (%s)" % node)
         say("       The udev rule needs a relogin, or `install` was never run.")

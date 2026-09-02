@@ -54,6 +54,24 @@ enum ripple_status {
 #define RIPPLE_MAGIC1 'P'
 #define RIPPLE_MAGIC2 'L'
 
+// Wire layout. REQUEST and REPLY are NOT the same shape -- the reply inserts a
+// status byte before the id -- so the offsets are named rather than written as
+// literals at each use. Getting this wrong by one byte is silent and looks
+// like corrupted values, not like a protocol error (it shipped once: SET read
+// the argument from REQ_VALUE+1, so every value arrived shifted a byte).
+//
+//   request:  [0] prefix  [1] subcmd  [2] id      [3..6]  u32 argument
+//   reply:    [0] prefix  [1] subcmd  [2] status  [3] id
+//             [4..7] u32 value  [8..11] u32 min  [12..15] u32 max
+#define REQ_SUB     1
+#define REQ_ID      2
+#define REQ_VALUE   3
+#define REP_STATUS  2
+#define REP_ID      3
+#define REP_VALUE   4
+#define REP_MIN     8
+#define REP_MAX    12
+
 ripple_config_t ripple_config;
 
 // --- the parameter table ----------------------------------------------------
@@ -171,10 +189,10 @@ void keyboard_post_init_user(void) {
 // --- the namespaced command handler -----------------------------------------
 static void ripple_reply(uint8_t *data, uint8_t sub, uint8_t status,
                          uint8_t id) {
-    data[0] = RIPPLE_PREFIX;
-    data[1] = sub;
-    data[2] = status;
-    data[3] = id;
+    data[0]          = RIPPLE_PREFIX;
+    data[REQ_SUB]    = sub;
+    data[REP_STATUS] = status;
+    data[REP_ID]     = id;
 }
 
 static void put32(uint8_t *p, uint32_t v) {
@@ -190,20 +208,20 @@ static uint32_t get32(const uint8_t *p) {
 }
 
 static void ripple_handle(uint8_t *data, uint8_t length) {
-    uint8_t sub = data[1];
-    uint8_t id  = data[2];
+    uint8_t sub = data[REQ_SUB];
+    uint8_t id  = data[REQ_ID];
     const ripple_param_meta_t *m;
 
     switch (sub) {
         case RIPPLE_SUB_IDENTIFY:
             // The only positive proof that THIS firmware is running.
             ripple_reply(data, sub, RIPPLE_OK, 0);
-            data[4] = RIPPLE_MAGIC0;
-            data[5] = RIPPLE_MAGIC1;
-            data[6] = RIPPLE_MAGIC2;
-            data[7] = RIPPLE_PROTO_VERSION;
-            data[8] = RIPPLE_CONFIG_VERSION;
-            data[9] = RIPPLE_NPARAMS;
+            data[REP_VALUE + 0] = RIPPLE_MAGIC0;
+            data[REP_VALUE + 1] = RIPPLE_MAGIC1;
+            data[REP_VALUE + 2] = RIPPLE_MAGIC2;
+            data[REP_VALUE + 3] = RIPPLE_PROTO_VERSION;
+            data[REP_VALUE + 4] = RIPPLE_CONFIG_VERSION;
+            data[REP_VALUE + 5] = RIPPLE_NPARAMS;
             break;
         case RIPPLE_SUB_GET:
             m = ripple_meta(id);
@@ -212,9 +230,9 @@ static void ripple_handle(uint8_t *data, uint8_t length) {
                 break;
             }
             ripple_reply(data, sub, RIPPLE_OK, id);
-            put32(&data[4], ripple_get(id));
-            put32(&data[8], m->min);   // ranges come FROM the firmware, so a
-            put32(&data[12], m->max);  // host can never drift out of step
+            put32(&data[REP_VALUE], ripple_get(id));
+            put32(&data[REP_MIN], m->min);  // ranges come FROM the firmware,
+            put32(&data[REP_MAX], m->max);  // so a host cannot drift
             break;
         case RIPPLE_SUB_SET:
             m = ripple_meta(id);
@@ -223,20 +241,20 @@ static void ripple_handle(uint8_t *data, uint8_t length) {
                 break;
             }
             {
-                uint32_t v = get32(&data[3 + 1]);
+                uint32_t v = get32(&data[REQ_VALUE]);
                 if (v < m->min || v > m->max) {
                     // Refuse, do NOT clamp: a silently adjusted value is a
                     // lie about what was asked for. The host reports the
                     // range and the value it tried.
                     ripple_reply(data, sub, RIPPLE_ERANGE, id);
-                    put32(&data[4], ripple_get(id));
-                    put32(&data[8], m->min);
-                    put32(&data[12], m->max);
+                    put32(&data[REP_VALUE], ripple_get(id));
+                    put32(&data[REP_MIN], m->min);
+                    put32(&data[REP_MAX], m->max);
                     break;
                 }
                 ripple_set(id, v);
                 ripple_reply(data, sub, RIPPLE_OK, id);
-                put32(&data[4], ripple_get(id));
+                put32(&data[REP_VALUE], ripple_get(id));
             }
             break;
         case RIPPLE_SUB_SAVE:

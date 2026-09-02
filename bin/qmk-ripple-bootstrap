@@ -1,0 +1,223 @@
+#!/usr/bin/env python3
+# Copyright 2026 jello-d
+# SPDX-License-Identifier: Apache-2.0
+"""qmk-ripple-bootstrap -- one-time setup for a keyboard that has never run
+this firmware.
+
+Run this ONCE per physical board, then never again. It exists so the other two
+commands can assume the firmware is already there:
+
+    qmk-ripple            off/on and tuning; assumes ripple firmware
+    qmk-ripple-admin      build/flash/check; assumes ripple firmware for the
+                          commands that talk to it
+    qmk-ripple-bootstrap  gets a virgin board to the point where those work
+
+THE CHICKEN AND EGG. Everything else drives the board over its 0xFF60 raw-HID
+interface, which exists only because this firmware builds with RAW_ENABLE. A
+board on stock firmware has nothing listening, so it cannot be ASKED to enter
+its bootloader -- the one flash that matters most is the one the tools cannot
+start. Only a human with the board in their hands can do it, by double-tapping
+the reset button. That is the whole reason this command is separate: it is the
+only part of the package that needs a person to touch hardware, and folding it
+into `qmk-ripple-admin flash` made that command carry a mode it needs exactly
+once and lie about being able to do the rest on a stock board.
+
+    qmk-ripple-bootstrap          the guided path: check, build, flash, verify
+    qmk-ripple-bootstrap --check  what state is this board in? (no changes)
+
+Exit: 0 ok; 1 something failed (each step says what and how to retry).
+"""
+import argparse
+import os
+import subprocess
+import sys
+
+sys.path.insert(0, os.path.join(
+    os.path.dirname(os.path.dirname(os.path.realpath(__file__))), "lib"))
+try:
+    import qmkripple as qr
+except ImportError:
+    sys.stderr.write(
+        "qmk-ripple-bootstrap: cannot import lib/qmkripple.py -- the package\n"
+        "layout is broken. bin/ and lib/ must stay siblings in the checkout.\n")
+    sys.exit(1)
+
+ADMIN = os.path.join(os.path.dirname(os.path.realpath(__file__)),
+                     "qmk-ripple-admin")
+
+
+def say(msg=""):
+    print(msg, flush=True)
+
+
+def rule(title):
+    say("")
+    say("== %s " % title + "=" * max(0, 68 - len(title)))
+
+
+def board_state():
+    """What is actually true right now, in one place.
+
+    Returns one of:
+      'absent'      nothing on the bus at this VID/PID
+      'bootloader'  a UF2 drive is present; the board is in its flasher
+      'stock'       on the bus, but no raw-HID interface (or not writable)
+      'noaccess'    raw-HID present but we cannot write it (udev rule missing)
+      'foreign'     raw-HID answers, but not with the ripple magic
+      'ripple'      confirmed ripple firmware
+    """
+    if qr.find_uf2_dev():
+        return "bootloader"
+    if not qr.present():
+        return "absent"
+    node = qr.find_node()
+    if node is None:
+        return "stock"
+    if not os.access(node, os.W_OK):
+        return "noaccess"
+    try:
+        qr.identify()
+    except (qr.Error, qr.NotFound):
+        return "foreign"
+    return "ripple"
+
+
+STATE_TEXT = {
+    "absent": "no board at %04x:%04x on the USB bus" % (qr.VID, qr.PID),
+    "bootloader": "in its UF2 bootloader (keys dead until it is flashed)",
+    "stock": "on the bus with NO raw-HID interface -- stock firmware",
+    "noaccess": "raw-HID present but not writable -- udev rule missing",
+    "foreign": "raw-HID answers but not with the ripple magic",
+    "ripple": "running ripple firmware",
+}
+
+
+def do_check():
+    st = board_state()
+    say("board: %s" % STATE_TEXT[st])
+    if st == "ripple":
+        info = qr.identify()
+        say("       protocol v%d, config v%d, %d params"
+            % (info["proto"], info["config_version"], info["nparams"]))
+        say("")
+        say("Already bootstrapped. Use `qmk-ripple` and `qmk-ripple-admin`;")
+        say("you never need this command again for this board.")
+    elif st == "absent":
+        say("")
+        say("Plug the keyboard in and re-run.")
+    elif st == "noaccess":
+        say("")
+        say("Run `qmk-ripple-admin install` (or this command, which does it),")
+        say("then log out and back in so the uaccess ACL applies.")
+    else:
+        say("")
+        say("Not bootstrapped yet. Run `qmk-ripple-bootstrap`.")
+    return 0 if st == "ripple" else 1
+
+
+def run_admin(*argv):
+    return subprocess.run([sys.executable, ADMIN] + list(argv)).returncode
+
+
+def main():
+    ap = argparse.ArgumentParser(
+        prog="qmk-ripple-bootstrap",
+        description="One-time setup for a board that has never run this "
+                    "firmware.",
+        epilog=qr.FIRST_FLASH_NOTE,
+        formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--check", action="store_true",
+                    help="report the board's state and exit; changes nothing")
+    ap.add_argument("--skip-build", action="store_true",
+                    help="use the last build instead of compiling")
+    a = ap.parse_args()
+
+    if a.check:
+        return do_check()
+
+    st = board_state()
+    say("qmk-ripple bootstrap -- one time per keyboard.")
+    say("board: %s" % STATE_TEXT[st])
+
+    if st == "absent":
+        say("")
+        say("Plug the keyboard in and re-run.")
+        return 1
+    if st == "ripple":
+        say("")
+        say("This board is ALREADY bootstrapped. Nothing to do -- reflashing")
+        say("an update is `qmk-ripple-admin flash`, which can drive itself.")
+        return 0
+
+    # 1. udev access. Needed before anything can talk to the board, and it is
+    #    the one privileged step in the package.
+    rule("1/4  udev access rule")
+    if run_admin("install") != 0:
+        say("FAILED: could not install the udev rule.")
+        return 1
+
+    # 2. firmware image.
+    rule("2/4  firmware image")
+    if a.skip_build:
+        say("--skip-build: using the last build")
+    elif run_admin("build") != 0:
+        say("FAILED: build failed. Fix that, then re-run with --skip-build")
+        say("to jump straight to the flash.")
+        return 1
+
+    # 3. THE step that needs a human. A stock board cannot be asked to jump,
+    #    so we wait for the drive to appear instead of sending a command.
+    rule("3/4  first flash (needs your hands)")
+    say("A board without this firmware cannot be told to enter its")
+    say("bootloader, so you have to do it:")
+    say("")
+    say("    Drop CSTM65: double-tap the reset button on the underside.")
+    say("")
+    say("The keys go dead and it mounts as a UF2 drive. That is expected.")
+    say("If you already did it, this picks the drive up immediately.")
+    say("")
+    # Waiting for a human belongs HERE, not in admin: once the drive exists,
+    # `admin flash` sees a board already in its bootloader and skips the jump,
+    # so it needs no special mode for the one-time case.
+    if not qr.find_uf2_dev():
+        say("waiting up to 120s for the UF2 drive ...")
+        qr.wait_for(lambda: qr.find_uf2_dev() is not None, 120)
+    dev = qr.find_uf2_dev()
+    if not dev:
+        say("")
+        say("FAILED: no UF2 drive appeared. Nothing was written.")
+        say("Check that a double-tap on reset makes the board mount as a")
+        say("drive, then re-run.")
+        return 1
+    say("UF2 drive: %s" % dev)
+    if run_admin("flash") != 0:
+        say("")
+        say("FAILED: the flash did not complete. Nothing was written, so the")
+        say("board is unchanged. Re-run this command to try again.")
+        return 1
+
+    # 4. prove it.
+    rule("4/4  verify")
+    st = board_state()
+    say("board: %s" % STATE_TEXT[st])
+    if st != "ripple":
+        say("")
+        say("The board came back but is not answering as ripple firmware.")
+        say("Run `qmk-ripple-admin check` for the detail.")
+        return 1
+    info = qr.identify()
+    say("confirmed: protocol v%d, config v%d, %d params"
+        % (info["proto"], info["config_version"], info["nparams"]))
+    say("")
+    say("Bootstrap complete. From here on:")
+    say("    qmk-ripple off | on | mode | set | save     everyday use")
+    say("    qmk-ripple-admin flash                      firmware updates")
+    say("You should not need qmk-ripple-bootstrap for this board again.")
+    say("")
+    say("If the raw-HID node was only just granted by the udev rule, a")
+    say("logout/login may be needed before a non-root shell can write it.")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

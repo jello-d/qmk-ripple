@@ -331,13 +331,18 @@ def get_param(name, vid=VID, pid=PID):
     return _u32(r, 4), _u32(r, 8), _u32(r, 12)
 
 
+def set_raw(wire_id, v, vid=VID, pid=PID):
+    """Set by wire id and wire integer. Returns the raw reply."""
+    return xfer([PREFIX, SUB_SET, wire_id,
+                 v & 0xFF, (v >> 8) & 0xFF, (v >> 16) & 0xFF,
+                 (v >> 24) & 0xFF], vid, pid)
+
+
 def set_param(name, text, vid=VID, pid=PID):
     """Set from a display-form string. Returns the stored value (wire int)."""
-    pid_, codec = param(name)
+    wire_id, codec = param(name)
     v = encode(codec, text)
-    r = xfer([PREFIX, SUB_SET, pid_,
-              v & 0xFF, (v >> 8) & 0xFF, (v >> 16) & 0xFF, (v >> 24) & 0xFF],
-             vid, pid)
+    r = set_raw(wire_id, v, vid, pid)
     if r[2] == ST_ERANGE:
         # The firmware refuses rather than clamping, so report exactly what was
         # asked for and what is allowed instead of pretending it worked.

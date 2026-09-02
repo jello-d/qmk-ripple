@@ -54,10 +54,10 @@ so the recovery from any failure is to re-run it -- no power cycle needed.
 
 ### First-flash notes (learned the hard way)
 
-- **The first flash needs `--manual`.** `flash` normally asks the board to jump
-  over raw HID, which only the ripple firmware answers. A board that does not
-  have it yet cannot be asked, so put it in its bootloader by hand (double-tap
-  reset) and run `qmk-ripple-admin flash --manual`.
+- **The first flash needs a human.** `flash` asks the board to jump over raw
+  HID, which only the ripple firmware answers. A board that does not have it
+  yet cannot be asked, so the one-time path is `qmk-ripple-bootstrap`: it
+  prompts you to double-tap reset, waits for the UF2 drive, then flashes.
 - **A bare `bootloader_jump()` skips the shutdown hooks.** The red indicator is
   painted by `shutdown_user`, which QMK runs from `shutdown_quantum()` --
   reached via `reset_keyboard()`, *not* by calling `bootloader_jump()`
@@ -84,7 +84,20 @@ so the recovery from any failure is to re-run it -- no power cycle needed.
 
 ## Tunables
 
-The effect reads `RIPPLE_BASE_{R,G,B}`, `RIPPLE_HI_{R,G,B}`, `RIPPLE_SPREAD`,
-`RIPPLE_RADIUS`, `RIPPLE_FADE`, `RIPPLE_FALLOFF` -- all `#define`-overridable
-from the keymap's `config.h`, defaulting to the simulator's v1 values. Runtime
-colour control (via Vial/VialRGB) is a later step.
+The effect no longer reads `#define`s directly. They are the boot DEFAULTS for
+`ripple_config` (see `ripple_config.h`), which the effect renders from and the
+host retunes at runtime, so `RIPPLE_BASE_{R,G,B}`, `RIPPLE_HI_{R,G,B}`,
+`RIPPLE_SPREAD`, `RIPPLE_RADIUS`, `RIPPLE_KEYSTEP`, `RIPPLE_PEAK`,
+`RIPPLE_FADE` and `RIPPLE_FALLOFF` still set the look from a keymap's
+`config.h` exactly as before.
+
+What changed is that tuning them no longer needs a reflash:
+
+    qmk-ripple show
+    qmk-ripple set hi ff0066
+    qmk-ripple save
+
+`RIPPLE_PEAK` and `RIPPLE_FALLOFF` are now PERCENTS (33, 100) rather than
+floats (0.33f, 1.0f), and `RIPPLE_KEYSTEP` is a whole number of grid units,
+because the values live in a fixed-point struct that has to survive EEPROM.
+An old keymap that set them as floats needs those three updated.

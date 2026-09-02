@@ -12,7 +12,7 @@ screen-blank path can be none of those.
     qmk-ripple-admin bootloader               jump to the flasher, no flash
     qmk-ripple-admin install                  udev access rule (sudo)
     qmk-ripple-admin check                    audit the install
-    qmk-ripple-admin selftest                 prove the relight works (sudo)
+    qmk-ripple-admin selftest                 round-trip + relight (sudo)
 
 The bootloader jump lives HERE, not in bin/qmk-ripple, even though it needs no
 root: it is a flashing operation, and its byte has teeth. Ripple's 0x03 is
@@ -20,12 +20,15 @@ VIA's id_set_keyboard_value, a WRITE, so aimed at a board that is not running
 ripple it does not fail cleanly. The command on the screen-blank path must not
 be able to do that.
 
-BOOTSTRAP: `flash` normally puts the board in its bootloader itself, over the
-raw-HID interface that only the ripple firmware provides. On a board that does
-not have that firmware yet there is nothing to ask, so the first flash needs
---manual: you put the board in its bootloader by hand and this waits for the
-drive. Everything else here works on a stock board; only the commands that
-SPEAK to the firmware need the firmware.
+This command ASSUMES the board already runs ripple firmware: `flash` asks it
+to enter its bootloader over raw HID, which only this firmware answers. A
+virgin board cannot be asked, and that one-time, hands-on path lives in its
+own command so this one does not carry a mode it needs exactly once:
+
+    qmk-ripple-bootstrap
+
+Commands here that talk to the board say so plainly when it is not there,
+rather than half-working.
 
 Exit: 0 ok; 2 keyboard not found; 1 other error; `check` non-zero on drift.
 """
@@ -101,31 +104,26 @@ def do_flash(args):
     if dev:
         say("board is ALREADY in the bootloader at %s; skipping the jump."
             % dev)
-    elif args.manual:
-        say("")
-        say("MANUAL bootstrap: put the board in its bootloader NOW.")
-        say("  Drop CSTM65: double-tap the reset button on the underside.")
-        say("  It should mount as a UF2 drive (nothing types while it is in")
-        say("  the bootloader -- that is expected).")
-        say("")
-        say("waiting up to %ds for the UF2 drive ..." % args.wait)
-        qr.wait_for(lambda: qr.find_uf2_dev() is not None, args.wait)
-        dev = qr.find_uf2_dev()
     else:
         if not qr.present():
             sys.stderr.write(
-                "qmk-ripple-admin: keyboard not on the USB bus.\n"
-                "  If it IS plugged in and still has stock firmware, this "
-                "command\n  cannot ask it to jump. Use --manual.\n")
+                "qmk-ripple-admin: keyboard not on the USB bus.\n")
             return 2
         say("asking the board to jump to its bootloader ...")
         try:
             qr.send("bootloader")
         except qr.NotFound:
+            # Not a failure to paper over: this command cannot flash a board
+            # that does not already run the firmware, and saying so is more
+            # use than a mode that pretends otherwise.
             sys.stderr.write(
-                "qmk-ripple-admin: no raw-HID interface, so the board cannot "
-                "be\n  asked to jump. This is the stock-firmware case: use "
-                "--manual.\n")
+                "qmk-ripple-admin: no raw-HID interface, so this board cannot "
+                "be\n  asked to enter its bootloader. It is not running "
+                "ripple firmware\n  yet -- that is a one-time setup:\n\n"
+                "      qmk-ripple-bootstrap\n\n"
+                "  (Or put it in its bootloader by hand and re-run this; a "
+                "board\n  already in its flasher is picked up "
+                "automatically.)\n")
             return 2
         except qr.Error as e:
             sys.stderr.write("qmk-ripple-admin: %s\n" % e)
@@ -287,9 +285,10 @@ def do_check():
         if usb is not None:
             say("[WARN] no 0xFF60 raw-HID interface on the board")
             say("       Most likely it is still running STOCK firmware. "
-                "off/on/")
-            say("       bootloader cannot work until it is flashed; see "
-                "`flash --manual`.")
+                "Nothing that")
+            say("       talks to the board works until it is flashed once, "
+                "by hand:")
+            say("       run `qmk-ripple-bootstrap`.")
     elif os.access(node, os.W_OK):
         say("[OK]   raw-HID interface present and writable (%s)" % node)
         # 0xFF60 alone proves nothing (VIA shares the page), so ASK the board.
@@ -321,7 +320,71 @@ def do_check():
 
 
 # --- selftest ----------------------------------------------------------------
-def do_selftest():
+def do_roundtrip():
+    """Set every parameter to a probe value and read it back.
+
+    This exists because a one-byte offset error in the firmware's SET handler
+    shipped once and NOTHING else caught it: identify passed, get passed, show
+    rendered a clean table, and the values were silently shifted a byte. Only
+    comparing what went in against what came back finds that class of bug.
+
+    Non-destructive: the current values are snapshotted first and written back
+    at the end, so an unsaved tuning session survives the test.
+    """
+    try:
+        qr.identify()
+    except qr.Error as e:
+        sys.stderr.write("qmk-ripple-admin: %s\n" % e)
+        return 1
+    snapshot = {}
+    for name, wire_id, _codec in qr.PARAMS:
+        snapshot[name] = qr.get_param(name)[0]
+
+    bad = 0
+    try:
+        for name, wire_id, codec in qr.PARAMS:
+            cur, lo, hi = qr.get_param(name)
+            probe = None
+            for cand in (lo + 1, hi - 1, lo, hi):
+                if lo <= cand <= hi and cand != cur:
+                    probe = cand
+                    break
+            if probe is None:
+                say("  %-9s skipped (no distinct in-range probe)" % name)
+                continue
+            qr.set_raw(wire_id, probe)
+            got = qr.get_param(name)[0]
+            if got == probe:
+                say("  %-9s ok   (%s -> read back identical)"
+                    % (name, qr.decode(codec, probe)))
+            else:
+                bad += 1
+                say("  %-9s FAIL sent %s, read back %s"
+                    % (name, qr.decode(codec, probe), qr.decode(codec, got)))
+        # Out-of-range must be REFUSED, not clamped, and must not change it.
+        for name, wire_id, _codec in qr.PARAMS:
+            cur, _lo, hi = qr.get_param(name)
+            if hi >= 0xFFFFFFFF:
+                continue
+            r = qr.set_raw(wire_id, hi + 1)
+            after = qr.get_param(name)[0]
+            if r[2] != qr.ST_ERANGE:
+                bad += 1
+                say("  %-9s FAIL over-range value was not refused" % name)
+            elif after != cur:
+                bad += 1
+                say("  %-9s FAIL over-range value changed it anyway" % name)
+        if bad == 0:
+            say("  all %d parameters round-trip correctly" % len(qr.PARAMS))
+    finally:
+        for name, wire_id, _codec in qr.PARAMS:
+            qr.set_raw(wire_id, snapshot[name])
+        say("  (original values restored)")
+    return 1 if bad else 0
+
+
+
+def do_selftest(protocol_only=False):
     """Prove the relight-on-enumeration fix, without a reboot.
 
     Blank the backlight, then port-reset the board. A port reset is the same
@@ -340,8 +403,19 @@ def do_selftest():
         return 2
     node = qr.usb_devnode(usb)
     say("keyboard: %s -> %s" % (usb, node))
+
     say("")
-    say("STEP 1: blanking the backlight (what a screen blank does) ...")
+    say("STEP 1: protocol round-trip over every parameter ...")
+    if do_roundtrip() != 0:
+        return 1
+    if protocol_only:
+        say("")
+        say("--protocol-only: stopping before the relight test (which needs")
+        say("root for the port-reset ioctl).")
+        return 0
+
+    say("")
+    say("STEP 2: blanking the backlight (what a screen blank does) ...")
     try:
         qr.send("off")
     except (qr.Error, qr.NotFound) as e:
@@ -350,7 +424,7 @@ def do_selftest():
     time.sleep(3)
     say("        --> the keys should be DARK right now.")
     say("")
-    say("STEP 2: USB port reset (what a reboot looks like to the board) ...")
+    say("STEP 3: USB port reset (what a reboot looks like to the board) ...")
     code = ("import fcntl, os, sys\n"
             "fd = os.open(sys.argv[1], os.O_WRONLY)\n"
             "try:\n"
@@ -394,10 +468,6 @@ def main():
 
     f = sub.add_parser("flash", help="flash the firmware")
     f.add_argument("file", nargs="?", help="a .uf2 (default: the last build)")
-    f.add_argument("--manual", action="store_true",
-                   help="do NOT ask the board to jump; wait for you to put it "
-                        "in its bootloader by hand. Required for the FIRST "
-                        "flash of a board that does not run ripple yet.")
     f.add_argument("--sudo", action="store_true",
                    help="mount with plain mount(8) instead of udisks")
     f.add_argument("--wait", type=int, default=40, help="per-step timeout (s)")
@@ -408,7 +478,10 @@ def main():
                    help="jump to the flasher without flashing anything")
     sub.add_parser("install", help="install the udev access rule (sudo)")
     sub.add_parser("check", help="audit the install")
-    sub.add_parser("selftest", help="prove the relight works (sudo)")
+    t = sub.add_parser("selftest",
+                       help="protocol round-trip + relight test (sudo)")
+    t.add_argument("--protocol-only", action="store_true",
+                   help="just the parameter round-trip; no root needed")
 
     a = ap.parse_args()
     if a.cmd == "build":
@@ -422,7 +495,7 @@ def main():
     if a.cmd == "check":
         return do_check()
     if a.cmd == "selftest":
-        return do_selftest()
+        return do_selftest(a.protocol_only)
     return 1
 
 

@@ -16,14 +16,15 @@ drag-and-drop `.uf2`), so none of this depends on the vendor.
 
 ## Layout
 
-    bin/qmk-ripple        control + tuning (off/on, mode, get/set); no root
-    bin/qmk-ripple-admin  build/flash/install/check/selftest; sometimes root
-    lib/qmkripple.py      shared constants + device discovery for both
+    bin/qmk-ripple            control + tuning (off/on, mode, set); no root
+    bin/qmk-ripple-admin      build/flash/install/check; sometimes root
+    bin/qmk-ripple-bootstrap  one-time setup for a virgin board
+    lib/qmkripple.py          shared constants + discovery for all three
     qmk/                the firmware: custom effect, host-control, keymap, build
     sim/                terminal simulator for tuning the effect
     leds/               per-keyboard LED position tables (QMK coord space)
 
-## Two commands, split by blast radius
+## Three commands, split by blast radius
 
 `bin/qmk-ripple` is the hot path: a screen-power daemon (e.g. `panel-power`)
 runs it on every blank and unblank, so it is small, dependency-free, and has no
@@ -45,14 +46,25 @@ screen blank must not be able to send it.
 privileged:
 
     qmk-ripple-admin build [BOARD] [KEYMAP]  compile the firmware
-    qmk-ripple-admin flash [FILE]            flash it (--manual for the first)
+    qmk-ripple-admin flash [FILE]            flash an update
     qmk-ripple-admin bootloader              jump to the flasher, no flash
     qmk-ripple-admin install                 udev access rule (sudo)
     qmk-ripple-admin check                   audit ([OK]/[WARN]/[FAIL] + code)
-    qmk-ripple-admin selftest                prove the relight works (sudo)
+    qmk-ripple-admin selftest                round-trip + relight test (sudo)
 
 `install` grants the session user the raw-HID node via a udev `uaccess` rule
 (it is root-only otherwise), which is why routine control needs no root.
+
+`bin/qmk-ripple-bootstrap` runs **once per physical keyboard** and then never
+again. It is separate because it is the only part of the package that needs a
+human to touch the hardware, and folding it into `flash` gave that command a
+mode it needed exactly once:
+
+    qmk-ripple-bootstrap          guided: install, build, flash, verify
+    qmk-ripple-bootstrap --check  what state is this board in? (no changes)
+
+Both other commands assume the firmware is already there and say so plainly
+when it is not, rather than half-working.
 
 `off` is **transient**: it lives in the MCU's RAM
 (`rgb_matrix_disable_noeeprom`) and the firmware wipes it on any fresh USB
@@ -100,13 +112,16 @@ the bootloader jump all speak the 0xFF60 raw-HID interface, which exists only
 because the ripple firmware builds with `RAW_ENABLE`. A board on stock
 firmware has nothing listening, so the first flash must be started by hand:
 
-    qmk-ripple-admin build                 # compile
-    # put the board in its bootloader physically:
-    #   Drop CSTM65: double-tap the reset button (it mounts as a UF2 drive)
-    qmk-ripple-admin flash --manual        # waits for the drive, copies
+    qmk-ripple-bootstrap
 
-After that the board speaks the protocol and `flash` needs no `--manual` -- it
-jumps by itself.
+It installs the udev rule, builds, tells you to double-tap the reset button,
+waits for the UF2 drive, flashes, and verifies the board answers as ripple
+firmware. After that the board speaks the protocol and every other command
+works, including `qmk-ripple-admin flash`, which drives the jump itself.
+
+The hands-on step is unavoidable, not a missing feature: a board with no
+raw-HID interface cannot be *asked* to enter its bootloader, so the one flash
+that matters most is the one no tool can start.
 
 ### 0xFF60 does not prove ripple is installed
 
@@ -121,7 +136,7 @@ bytes collide, and not harmlessly:
 | 0x03 | bootloader | `id_set_keyboard_value` (**a write**) |
 
 So the tools never send control bytes to a board just because the interface is
-there. On an unconfirmed board, flash with `--manual`.
+there. On an unconfirmed board, use `qmk-ripple-bootstrap`.
 
 Everything added after those three bytes is namespaced behind a `0x52` prefix,
 which VIA does not define: a v2 command aimed at a VIA board lands in its
@@ -146,10 +161,10 @@ EE_CLR-after-first-flash gotcha).
     qmk-ripple-admin build              # or, directly:
     VIAL_QMK=~/src/vial-qmk sh qmk/build.sh drop/cstm65 ripple
 
-Then `qmk-ripple-admin flash` (add `--manual` for a board that does not run
-this firmware yet). Prefer it over copying the `.uf2` by hand: the drive does
-not automount on a box with no automount daemon, and mounting it the instant
-it appears races udisks. `flash` handles both.
+Then `qmk-ripple-admin flash` (or `qmk-ripple-bootstrap` for a board that
+does not run this firmware yet). Prefer either over copying the `.uf2` by
+hand: the drive does not automount on a box with no automount daemon, and
+mounting it the instant it appears races udisks. Both handle that.
 
 ## Simulator (`sim/ripple.py`)
 

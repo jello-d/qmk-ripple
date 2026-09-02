@@ -426,6 +426,73 @@ def _run_ok(argv):
         return False
 
 
+# --- the firmware's compiled-in defaults -------------------------------------
+# Read out of qmk/ripple_config.h rather than copied. The simulator used to
+# carry its own set of the same eight numbers, which is exactly the kind of
+# duplicate that drifts silently: the sim would show one look and the board
+# another, with nothing to say which was right. The header is the source of
+# truth for boot values; this parses it.
+_DEF_RE = None
+
+
+def firmware_defaults():
+    """The RIPPLE_* #defaults, in the same DISPLAY units `qmk-ripple show`
+    prints (colours as rrggbb, peak/falloff as fractions). Raises if the
+    header cannot be read: a silently-empty default set would be worse."""
+    import re
+    path = os.path.join(pkg_root(), "qmk", "ripple_config.h")
+    try:
+        with open(path) as f:
+            text = f.read()
+    except OSError as e:
+        raise Error("cannot read the firmware defaults (%s): %s" % (path, e))
+    raw = {}
+    for m in re.finditer(r"^#\s*define\s+(RIPPLE_[A-Z_]+)\s+"
+                         r"(0[xX][0-9A-Fa-f]+|\d+)\s*(?://.*)?$",
+                         text, re.M):
+        raw[m.group(1)] = int(m.group(2), 0)
+    need = ["RIPPLE_BASE_R", "RIPPLE_BASE_G", "RIPPLE_BASE_B",
+            "RIPPLE_HI_R", "RIPPLE_HI_G", "RIPPLE_HI_B",
+            "RIPPLE_SPREAD", "RIPPLE_RADIUS", "RIPPLE_KEYSTEP",
+            "RIPPLE_PEAK", "RIPPLE_FADE", "RIPPLE_FALLOFF"]
+    missing = [k for k in need if k not in raw]
+    if missing:
+        raise Error("%s is missing %s" % (path, ", ".join(missing)))
+    # The x100 conversions mirror what the firmware does when it fills
+    # ripple_config from these same #defines.
+    return {
+        "base": "%02x%02x%02x" % (raw["RIPPLE_BASE_R"], raw["RIPPLE_BASE_G"],
+                                  raw["RIPPLE_BASE_B"]),
+        "hi": "%02x%02x%02x" % (raw["RIPPLE_HI_R"], raw["RIPPLE_HI_G"],
+                                raw["RIPPLE_HI_B"]),
+        "spread": float(raw["RIPPLE_SPREAD"]),
+        "radius": float(raw["RIPPLE_RADIUS"]),
+        "keystep": float(raw["RIPPLE_KEYSTEP"]),
+        "peak": raw["RIPPLE_PEAK"] / 100.0,
+        "fade": float(raw["RIPPLE_FADE"]),
+        "falloff": raw["RIPPLE_FALLOFF"] / 100.0,
+    }
+
+
+def board_values(vid=VID, pid=PID):
+    """The parameters LIVE on the keyboard, in the same display units as
+    firmware_defaults(), so the simulator can preview what is actually on the
+    board instead of what the defaults say."""
+    identify(vid, pid)
+    out = {}
+    for name, _wire_id, codec in PARAMS:
+        v, _lo, _hi = get_param(name, vid, pid)
+        if codec in ("pct", "x100"):
+            out[name] = v / 100.0
+        elif codec == "color":
+            out[name] = "%06x" % v
+        elif codec == "mode":
+            out[name] = decode(codec, v)
+        else:
+            out[name] = float(v)
+    return out
+
+
 def pkg_root():
     """The package checkout root, resolved THROUGH the bin/ symlink that a
     provisioner drops on PATH."""

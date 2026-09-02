@@ -20,12 +20,34 @@ Usage:
                             backlight (the screen-off preview). Ctrl-C quits.
   ripple.py --once          render one frame with a sample hit, then exit
   ripple.py --frames N      render N frames headless (no cursor tricks), exit
-  tunables: --base --hi --spread --radius --fade --falloff --value  (see --help)
+  ripple.py --from-board    start from what the KEYBOARD is running right now
+  ripple.py --emit-set      print the `qmk-ripple set` lines for these values
+
+In step with the rest of the package:
+  - the flag names are the parameter names (`--radius` <-> `qmk-ripple set
+    radius`), and the units match what `qmk-ripple show` prints;
+  - the DEFAULTS are read from qmk/ripple_config.h, not copied here, so the
+    simulator and the firmware cannot drift apart on what "default" means;
+  - --from-board loads the live values over raw HID, and --emit-set prints the
+    commands to push a tuned look back, closing the tune -> apply loop.
+
+ripple_intensity() below is still a hand-mirrored port of the C in
+rgb_matrix_user.inc -- two languages, so the MATH cannot be shared the way the
+values now are. Keep the two in lockstep by hand; that pairing is the one
+duplication left on purpose.
 """
 import argparse, json, math, os, random, sys, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 LEDS = os.path.join(os.path.dirname(HERE), "leds", "cstm65.json")
+
+sys.path.insert(0, os.path.join(os.path.dirname(HERE), "lib"))
+try:
+    import qmkripple as qr
+except ImportError:
+    sys.stderr.write("ripple.py: cannot import lib/qmkripple.py -- sim/ and "
+                     "lib/ must stay siblings in the checkout.\n")
+    sys.exit(1)
 
 
 def hexrgb(s):
@@ -44,6 +66,7 @@ class Params:
         self.fade = a.fade                # ms to blend back to base
         self.falloff = a.falloff          # time-fade curve (>1 lingers)
         self.value = a.value              # constant brightness 0..255
+        self.mode = a.mode                # flat = base colour only, no ripple
 
 
 def ripple_intensity(dist, age_ms, p):
@@ -73,6 +96,8 @@ def lerp(a, b, t):
 def led_color(led, hits, now, p):
     x, y = led["x"], led["y"]
     inten = 0.0
+    if p.mode == "flat":                  # matches RIPPLE_MODE_FLAT: the hit
+        hits = ()                         # scan is skipped, every key is base
     for hx, hy, t0 in hits:
         d = math.hypot(x - hx, y - hy)
         inten = max(inten, ripple_intensity(d, (now - t0) * 1000.0, p))
@@ -222,22 +247,64 @@ def run_keys(leds, cell, nr, nc, p, fps):
 
 
 def main():
-    ap = argparse.ArgumentParser(description="ripple RGB effect simulator")
+    # Defaults come from the FIRMWARE header, never a copy: see the module
+    # docstring. A pre-pass reads --from-board so the live values become the
+    # argparse defaults, which lets an explicit flag still override them.
+    pre = argparse.ArgumentParser(add_help=False)
+    pre.add_argument("--from-board", action="store_true")
+    known, _rest = pre.parse_known_args()
+    try:
+        d = qr.firmware_defaults()
+        src = "qmk/ripple_config.h"
+        if known.from_board:
+            d.update(qr.board_values())
+            src = "the keyboard"
+    except (qr.Error, qr.NotFound) as e:
+        sys.stderr.write("ripple.py: %s\n" % e)
+        return 1
+
+    ap = argparse.ArgumentParser(
+        description="ripple RGB effect simulator (defaults from %s)" % src)
     ap.add_argument("--leds", default=LEDS)
-    ap.add_argument("--base", default="0000ff", help="base colour hex (blue)")
-    ap.add_argument("--hi", default="9400d3", help="ripple colour hex (purple)")
-    ap.add_argument("--spread", type=float, default=5.0, help="ms delay/unit")
-    ap.add_argument("--radius", type=float, default=26.0, help="reach, units")
-    ap.add_argument("--keystep", type=float, default=13.0, help="units per key")
-    ap.add_argument("--peak", type=float, default=0.33, help="1st-ring peak")
-    ap.add_argument("--fade", type=float, default=216.0, help="blend-back ms")
-    ap.add_argument("--falloff", type=float, default=1.0, help="fade curve")
+    ap.add_argument("--from-board", action="store_true",
+                    help="take the starting values from the keyboard")
+    ap.add_argument("--emit-set", action="store_true",
+                    help="print the `qmk-ripple set` lines and exit")
+    ap.add_argument("--base", default=d["base"], help="base colour hex")
+    ap.add_argument("--hi", default=d["hi"], help="ripple colour hex")
+    ap.add_argument("--spread", type=float, default=d["spread"],
+                    help="ms delay/unit")
+    ap.add_argument("--radius", type=float, default=d["radius"],
+                    help="reach, units")
+    ap.add_argument("--keystep", type=float, default=d["keystep"],
+                    help="units per key")
+    ap.add_argument("--peak", type=float, default=d["peak"],
+                    help="1st-ring peak")
+    ap.add_argument("--fade", type=float, default=d["fade"],
+                    help="blend-back ms")
+    ap.add_argument("--falloff", type=float, default=d["falloff"],
+                    help="fade curve")
+    ap.add_argument("--mode", choices=("ripple", "flat"),
+                    default=d.get("mode", "ripple"),
+                    help="flat = base colour only")
     ap.add_argument("--value", type=float, default=255.0, help="bright 0-255")
     ap.add_argument("--fps", type=float, default=60.0)
     ap.add_argument("--keys", action="store_true", help="interactive (raw tty)")
     ap.add_argument("--once", action="store_true", help="one frame, exit")
     ap.add_argument("--frames", type=int, help="render N frames headless, exit")
     a = ap.parse_args()
+
+    if a.emit_set:
+        # The tune -> apply loop: what you settled on here, as the commands
+        # that put it on the board.
+        for name in ("base", "hi", "spread", "radius", "peak", "fade",
+                     "falloff", "keystep", "mode"):
+            v = getattr(a, name)
+            if isinstance(v, float) and v == int(v):
+                v = int(v)
+            print("qmk-ripple set %s %s" % (name, v))
+        print("qmk-ripple save")
+        return 0
 
     leds = json.load(open(a.leds))["leds"]
     p = Params(a)
@@ -248,15 +315,16 @@ def main():
         c = snap(leds, (69, 33))          # a sample hit near 'f'
         frame(leds, cell, nr, nc, [(c["x"], c["y"], now - 0.06)], now, p,
               home=False)
-        return
+        return 0
     if a.frames is not None:
         run_demo(leds, cell, nr, nc, p, a.fps, frames=a.frames)
-        return
+        return 0
     if a.keys:
         run_keys(leds, cell, nr, nc, p, a.fps)
-        return
+        return 0
     run_demo(leds, cell, nr, nc, p, a.fps)
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

@@ -16,10 +16,11 @@ drag-and-drop `.uf2`), so none of this depends on the vendor.
 
 ## Layout
 
+    setup.sh                  put the commands on PATH (no provisioner)
     bin/qmk-ripple            control + tuning (off/on, mode, set); no root
     bin/qmk-ripple-admin      build/flash/install/check; sometimes root
     bin/qmk-ripple-bootstrap  one-time setup for a virgin board
-    lib/qmkripple.py          shared constants + discovery for all three
+    lib/qmkripple.py          shared constants, protocol, defaults
     qmk/                the firmware: custom effect, host-control, keymap, build
     sim/                terminal simulator for tuning the effect
     leds/               per-keyboard LED position tables (QMK coord space)
@@ -175,15 +176,42 @@ firmware effect ports verbatim -- tune here, then mirror the constants.
     python3 sim/ripple.py            # demo: auto-typing (Ctrl-C quits)
     python3 sim/ripple.py --keys     # interactive; Tab blanks (screen-off)
 
-Tunables (`--help`): `--base`/`--hi` colours, `--spread` (ms delay per grid
-unit), `--radius`/`--keystep` (reach and per-key spacing), `--peak` (first-ring
-peak blend; halves outward), `--fade` (blend-back ms), `--falloff`, `--value`.
+The flags ARE the parameter names, in the units `qmk-ripple show` prints, and
+the defaults are read from `qmk/ripple_config.h` rather than copied -- so the
+simulator and the firmware cannot disagree about what "default" means.
+
+    python3 sim/ripple.py --from-board    start from what the board runs now
+    python3 sim/ripple.py --emit-set      print the `qmk-ripple set` lines
+
+which closes the loop: preview a look, then push it to the keyboard.
+
+`ripple_intensity()` is still a hand-mirrored port of the C in
+`rgb_matrix_user.inc`. Two languages, so the MATH cannot be shared the way the
+values now are; that pairing is the one duplication left on purpose.
 
 ## Install
 
-Standalone: `qmk-ripple-admin install` (once, for the udev rule); put `bin/` on
-PATH. As a managed package: a provisioner clones this repo and symlinks every
-`bin/*` into `~/.local/bin`, then runs `qmk-ripple-admin install` for the rule.
+Standalone, no provisioner:
+
+    sh setup.sh install        symlink bin/* into ~/.local/bin (idempotent)
+    qmk-ripple-admin install   the udev rule (the one privileged step)
+    qmk-ripple-bootstrap       if this board has never run the firmware
+
+`setup.sh check` verifies the links and `setup.sh uninstall` removes only the
+ones pointing into this checkout, leaving a same-named command from elsewhere
+alone.
+
+As a managed package this is the SAME path: tackup's `install_pkg_tree()`
+delegates to `setup.sh install` when it is executable ("a package that ships
+its own setup.sh OWNS its layout mapping"), passing `PREFIX`/`XDG_BIN_HOME`/
+`XDG_DATA_HOME`, which this honours. So there is one install path, not two.
+It stays non-privileged for that reason: the provisioner's package mode does
+no sudo, so the udev rule is deliberately left to `qmk-ripple-admin install`,
+which the provisioner runs separately.
+
+The links must be symlinks resolving into the checkout, not copies: the
+commands self-locate `lib/qmkripple.py` through their own path, and the
+provisioner's "is it installed?" test compares realpaths.
 
 `bin/` and `lib/` must stay siblings in the checkout: both commands locate
 `lib/qmkripple.py` by resolving their own path *through* the PATH symlink, and

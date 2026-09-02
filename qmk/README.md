@@ -22,13 +22,48 @@ For a keymap dir `<board>/keymaps/ripple/` (base it on the board's `default`):
 
 ## Build + flash (CSTM65: STM32F303, tinyuf2)
 
-    qmk compile -kb drop/cstm65 -km ripple      # -> .build/*.uf2
+    qmk-ripple-admin build              # wraps build.sh
+    qmk-ripple-admin flash              # jump, mount, copy, verify
 
-Flash is drag-and-drop: double-tap reset (or the `QK_BOOT` key on layer 1) so
-the board mounts as a USB drive, then copy the `.uf2` onto it. To revert, flash
-the stock/default `.uf2` the same way -- fully reversible.
+Under the hood the board mounts as a UF2 drive and the `.uf2` is copied onto
+it. To revert, flash the stock/default `.uf2` the same way -- fully reversible.
+
+**Use `qmk-ripple-admin flash` rather than doing it by hand.** "Drag-and-drop"
+assumes a desktop that automounts the drive and that the drive is ready the
+moment it appears. Neither held here, and each cost a failed flash:
+
+- **Nothing automounts it.** A box with no automount daemon (no udiskie, gvfs
+  or nautilus) leaves the UF2 drive as a bare block device. Waiting for a
+  mountpoint waits forever, and the board sits in the bootloader with dead keys
+  until it is power-cycled. `flash` finds the raw device and mounts it itself.
+- **Find it by SCSI model, not by label or letter.** The tinyuf2 drive reports
+  model `Adafruit UF2 Bootloader`; matching that keeps the tool off every other
+  removable device.
+- **udisks handles the uevent asynchronously.** The device lands in
+  `/sys/block` a beat before udisks has an object for it, so mounting the
+  instant it appears fails with `Error looking up object for device`. `flash`
+  waits for udisks to see it, then retries.
+- **I/O errors during the copy are the success path.** The board reboots itself
+  the moment the image lands, so the host's queued writes hit a device that is
+  already gone (`device offline error`, `FAT-fs ... unable to read`). The
+  verdict is whether the keyboard re-enumerates, not whether `cp` was quiet.
+
+A failed flash never writes anything, so the old firmware is always intact.
+`flash` detects a board already sitting in its bootloader and skips the jump,
+so the recovery from any failure is to re-run it -- no power cycle needed.
 
 ### First-flash notes (learned the hard way)
+
+- **The first flash needs `--manual`.** `flash` normally asks the board to jump
+  over raw HID, which only the ripple firmware answers. A board that does not
+  have it yet cannot be asked, so put it in its bootloader by hand (double-tap
+  reset) and run `qmk-ripple-admin flash --manual`.
+- **A bare `bootloader_jump()` skips the shutdown hooks.** The red indicator is
+  painted by `shutdown_user`, which QMK runs from `shutdown_quantum()` --
+  reached via `reset_keyboard()`, *not* by calling `bootloader_jump()`
+  directly. Getting this wrong put the board in the flasher with the keys still
+  blue. `reset_keyboard()` also waits 250ms, which is what gives the IS31FL3733
+  time to latch the colour so it survives into the bootloader.
 
 - **Two bootloader modes.** Double-tap reset should give the tinyuf2 USB *drive*
   (drag-and-drop). But a BOOT0-style entry lands in the STM32 ROM **DFU**

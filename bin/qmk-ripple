@@ -1,152 +1,87 @@
 #!/usr/bin/env python3
 # Copyright 2026 jello-d
 # SPDX-License-Identifier: Apache-2.0
-"""qmk-ripple -- host control + setup for the ripple QMK keyboard firmware.
+"""qmk-ripple -- routine control of the ripple keyboard backlight.
 
-A self-contained package command (a provisioner symlinks it onto PATH, but it
-runs standalone too). Subcommands:
+The HOT PATH: panel-power runs this on every screen blank and unblank, so it
+stays small, dependency-free, and NEVER needs root (the udev rule installed by
+`qmk-ripple-admin install` grants the session user the hidraw node).
 
-    off         disable the RGB matrix (LEDs dark; transient, noeeprom)
-    on          re-enable the matrix
-    bootloader  jump to the flasher (a reflash needs no reset pin)
-    install     install the raw-HID udev access rule (privileged; idempotent)
-    check       audit the install ([OK]/[FAIL] markers + exit code)
+    qmk-ripple off   LEDs dark (transient; see below)
+    qmk-ripple on    LEDs back
 
-off/on/bootloader talk a 1-byte protocol (see qmk/hostctl.c) to the keyboard's
-0xFF60 raw-HID interface, found by scanning /sys/class/hidraw (NOT hidapi, whose
-Linux backend reports usage_page as 0). They need write access to that node,
-which `install` grants via a udev uaccess rule. Default board 359b:0010 (Drop
-CSTM65); override with --vid/--pid.
+That is the WHOLE surface, and deliberately so. Setup, flashing, auditing --
+and the bootloader jump -- live in a separate command, qmk-ripple-admin.
+
+The jump is not here even though it is the same 1-byte protocol and needs no
+root, because it is a flashing operation rather than routine control, and it
+is the one byte with teeth: ripple's 0x03 is VIA's id_set_keyboard_value, a
+WRITE, so on a board that is not running ripple it does not fail cleanly, it
+changes something. The command that runs on every blank should not be able to
+do that. (qmk-ripple-admin reaches the protocol through lib/, not through this
+command, so nothing is lost.)
+
+"off" is transient: it lives in the MCU's RAM (rgb_matrix_disable_noeeprom),
+and the firmware wipes it on any fresh USB enumeration, so a reboot or replug
+always comes back lit even if this command never gets to send "on".
 
 Exit: 0 ok; 2 keyboard not found (so panel-power treats "no keyboard" as a
-harmless no-op); 1 other error; check returns non-zero on drift.
+harmless no-op); 1 other error.
 """
 import argparse
-import glob
 import os
-import subprocess
 import sys
 
-VID, PID = 0x359B, 0x0010
-REPORT_LEN = 32  # QMK RAW_EPSIZE
-FF60 = bytes((0x06, 0x60, 0xFF))  # Usage Page 0xFF60 in a report descriptor
-CMDS = {"off": 0x01, "on": 0x02, "bootloader": 0x03}
-
-RULE_PATH = "/etc/udev/rules.d/60-qmk-ripple.rules"
-RULE_TEXT = """\
-# Grant the active-seat user access to the ripple keyboard's raw-HID interface
-# (Drop CSTM65, 359b:0010), so qmk-ripple can send backlight off/on without
-# root. uaccess = an ACL for the logged-in session user, same mechanism as the
-# ddcutil/i2c and input rules. Installed by `qmk-ripple install`.
-KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="%04x", \
-ATTRS{idProduct}=="%04x", TAG+="uaccess"
-""" % (VID, PID)
+sys.path.insert(0, os.path.join(
+    os.path.dirname(os.path.dirname(os.path.realpath(__file__))), "lib"))
+try:
+    import qmkripple as qr
+except ImportError:
+    sys.stderr.write(
+        "qmk-ripple: cannot import lib/qmkripple.py -- the package layout is\n"
+        "broken. bin/ and lib/ must stay siblings in the checkout.\n")
+    sys.exit(1)
 
 
-def uevent(path):
-    d = {}
-    try:
-        with open(path) as f:
-            for line in f:
-                k, _, v = line.strip().partition("=")
-                d[k] = v
-    except OSError:
-        pass
-    return d
+EPILOG = """\
+first flash
+-----------
+%s
 
-
-def find_node(vid, pid):
-    """Return /dev/hidrawN for the raw-HID (0xFF60) interface of vid:pid."""
-    want = "%04X:%08X:%08X" % (0x0003, vid, pid)  # bus:vid:pid in HID_ID
-    for sysdir in sorted(glob.glob("/sys/class/hidraw/hidraw*")):
-        dev = os.path.join(sysdir, "device")
-        hid_id = uevent(os.path.join(dev, "uevent")).get("HID_ID", "").upper()
-        if hid_id != want:
-            continue
-        try:
-            with open(os.path.join(dev, "report_descriptor"), "rb") as f:
-                rd = f.read()
-        except OSError:
-            continue
-        if FF60 in rd:
-            return "/dev/" + os.path.basename(sysdir)
-    return None
-
-
-def send(cmd, vid, pid):
-    node = find_node(vid, pid)
-    if node is None:
-        sys.stderr.write("qmk-ripple: keyboard not found (raw-HID iface)\n")
-        return 2
-    report = bytes([0x00, CMDS[cmd]] + [0] * (REPORT_LEN - 1))
-    try:
-        fd = os.open(node, os.O_WRONLY)
-        try:
-            os.write(fd, report)
-        finally:
-            os.close(fd)
-    except OSError as e:
-        sys.stderr.write("qmk-ripple: %s: %s\n" % (node, e))
-        return 1
-    return 0
-
-
-def do_install():
-    """Install the udev rule (idempotent). Uses sudo; under a provisioner the
-    credential is already cached, so no extra prompt."""
-    if os.path.exists(RULE_PATH):
-        with open(RULE_PATH) as f:
-            if f.read() == RULE_TEXT:
-                print("qmk-ripple: udev rule already current")
-                return 0
-    print("qmk-ripple: installing %s (sudo)" % RULE_PATH)
-    try:
-        p = subprocess.run(["sudo", "tee", RULE_PATH], input=RULE_TEXT,
-                           text=True, stdout=subprocess.DEVNULL)
-        if p.returncode != 0:
-            return 1
-        subprocess.run(["sudo", "udevadm", "control", "--reload"], check=True)
-        subprocess.run(["sudo", "udevadm", "trigger",
-                       "--subsystem-match=hidraw"], check=True)
-    except (OSError, subprocess.CalledProcessError) as e:
-        sys.stderr.write("qmk-ripple: install failed: %s\n" % e)
-        return 1
-    print("qmk-ripple: udev rule installed")
-    return 0
-
-
-def do_check(vid, pid):
-    """Audit: [OK]/[FAIL] markers + non-zero exit on drift."""
-    rc = 0
-    if os.path.exists(RULE_PATH) and open(RULE_PATH).read() == RULE_TEXT:
-        print("[OK]   udev rule installed and current")
-    else:
-        print("[FAIL] udev rule missing or stale (%s)" % RULE_PATH)
-        rc = 1
-    node = find_node(vid, pid)
-    if node is None:
-        print("[WARN] keyboard not connected (raw-HID iface not found)")
-    elif os.access(node, os.W_OK):
-        print("[OK]   keyboard present and writable (%s)" % node)
-    else:
-        print("[FAIL] keyboard present but %s not writable (relogin?)" % node)
-        rc = 1
-    return rc
+why 0xFF60 is not proof
+-----------------------
+%s
+""" % (qr.FIRST_FLASH_NOTE, qr.USAGE_PAGE_WARNING)
 
 
 def main():
-    ap = argparse.ArgumentParser(prog="qmk-ripple")
-    ap.add_argument("cmd", choices=list(CMDS) + ["install", "check"])
-    ap.add_argument("--vid", default="%04x" % VID)
-    ap.add_argument("--pid", default="%04x" % PID)
+    ap = argparse.ArgumentParser(
+        prog="qmk-ripple",
+        description="Control the ripple keyboard backlight (no root needed).",
+        epilog=EPILOG,
+        formatter_class=argparse.RawDescriptionHelpFormatter)
+    # NOT list(qr.CMDS): that is the wire protocol, which includes the
+    # bootloader jump. This command exposes only the two safe, routine verbs.
+    ap.add_argument("cmd", choices=["off", "on"],
+                    help="off: LEDs dark; on: LEDs back. "
+                         "(the bootloader jump is `qmk-ripple-admin "
+                         "bootloader`)")
+    ap.add_argument("--vid", default="%04x" % qr.VID)
+    ap.add_argument("--pid", default="%04x" % qr.PID)
     a = ap.parse_args()
-    vid, pid = int(a.vid, 16), int(a.pid, 16)
 
-    if a.cmd == "install":
-        return do_install()
-    if a.cmd == "check":
-        return do_check(vid, pid)
-    return send(a.cmd, vid, pid)
+    try:
+        qr.send(a.cmd, int(a.vid, 16), int(a.pid, 16))
+    except qr.NotFound as e:
+        sys.stderr.write("qmk-ripple: %s\n" % e)
+        sys.stderr.write("  If this board still has stock firmware, that is "
+                         "expected: run\n  `qmk-ripple-admin check` for the "
+                         "diagnosis and the first-flash path.\n")
+        return 2
+    except qr.Error as e:
+        sys.stderr.write("qmk-ripple: %s\n" % e)
+        return 1
+    return 0
 
 
 if __name__ == "__main__":

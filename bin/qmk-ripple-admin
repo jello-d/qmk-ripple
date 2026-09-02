@@ -1,0 +1,421 @@
+#!/usr/bin/env python3
+# Copyright 2026 jello-d
+# SPDX-License-Identifier: Apache-2.0
+"""qmk-ripple-admin -- build, flash, install and audit the ripple keyboard.
+
+The RARE half of the package, kept out of bin/qmk-ripple on purpose: this is
+the tool that is allowed to be slow, chatty and privileged, so the one on the
+screen-blank path can be none of those.
+
+    qmk-ripple-admin build [BOARD] [KEYMAP]   compile the firmware
+    qmk-ripple-admin flash [FILE]             flash it (see BOOTSTRAP)
+    qmk-ripple-admin bootloader               jump to the flasher, no flash
+    qmk-ripple-admin install                  udev access rule (sudo)
+    qmk-ripple-admin check                    audit the install
+    qmk-ripple-admin selftest                 prove the relight works (sudo)
+
+The bootloader jump lives HERE, not in bin/qmk-ripple, even though it needs no
+root: it is a flashing operation, and its byte has teeth. Ripple's 0x03 is
+VIA's id_set_keyboard_value, a WRITE, so aimed at a board that is not running
+ripple it does not fail cleanly. The command on the screen-blank path must not
+be able to do that.
+
+BOOTSTRAP: `flash` normally puts the board in its bootloader itself, over the
+raw-HID interface that only the ripple firmware provides. On a board that does
+not have that firmware yet there is nothing to ask, so the first flash needs
+--manual: you put the board in its bootloader by hand and this waits for the
+drive. Everything else here works on a stock board; only the commands that
+SPEAK to the firmware need the firmware.
+
+Exit: 0 ok; 2 keyboard not found; 1 other error; `check` non-zero on drift.
+"""
+import argparse
+import os
+import subprocess
+import sys
+import time
+
+sys.path.insert(0, os.path.join(
+    os.path.dirname(os.path.dirname(os.path.realpath(__file__))), "lib"))
+try:
+    import qmkripple as qr
+except ImportError:
+    sys.stderr.write(
+        "qmk-ripple-admin: cannot import lib/qmkripple.py -- the package\n"
+        "layout is broken. bin/ and lib/ must stay siblings in the checkout.\n")
+    sys.exit(1)
+
+DEFAULT_BOARD = "drop/cstm65"
+DEFAULT_KEYMAP = "ripple"
+
+
+def say(msg=""):
+    print(msg, flush=True)
+
+
+# --- build -------------------------------------------------------------------
+def do_build(board, keymap):
+    """Compile via qmk/build.sh, which assembles the keymap onto a qmk tree."""
+    script = os.path.join(qr.pkg_root(), "qmk", "build.sh")
+    if not os.path.exists(script):
+        sys.stderr.write("qmk-ripple-admin: missing %s\n" % script)
+        return 1
+    say("building %s / %s ..." % (board, keymap))
+    p = subprocess.run(["sh", script, board, keymap])
+    if p.returncode != 0:
+        sys.stderr.write("qmk-ripple-admin: build failed\n")
+        return 1
+    uf2 = default_uf2(board, keymap)
+    say("built: %s" % (uf2 if uf2 else "(see the qmk tree)"))
+    return 0
+
+
+def default_uf2(board, keymap):
+    """Where build.sh leaves the .uf2, or None if it is not there."""
+    qmk = os.environ.get("VIAL_QMK", os.path.expanduser("~/src/vial-qmk"))
+    name = "%s_%s.uf2" % (board.replace("/", "_"), keymap)
+    path = os.path.join(qmk, ".build", name)
+    return path if os.path.exists(path) else None
+
+
+# --- flash -------------------------------------------------------------------
+def do_flash(args):
+    """Put the board in its bootloader, mount the UF2 drive, copy, verify.
+
+    Every step here exists because a simpler version of it failed on real
+    hardware; see the comments and the README's flashing notes.
+    """
+    uf2 = args.file or default_uf2(args.board, args.keymap)
+    if not uf2 or not os.path.exists(uf2):
+        sys.stderr.write(
+            "qmk-ripple-admin: no firmware image.\n"
+            "  Build one first (`qmk-ripple-admin build`) or pass a path.\n")
+        return 1
+    if not args.sudo and not shutil_which("udisksctl"):
+        sys.stderr.write("qmk-ripple-admin: no udisksctl; use --sudo\n")
+        return 1
+
+    say("firmware: %s (%d bytes)" % (uf2, os.path.getsize(uf2)))
+
+    dev = qr.find_uf2_dev()
+    if dev:
+        say("board is ALREADY in the bootloader at %s; skipping the jump."
+            % dev)
+    elif args.manual:
+        say("")
+        say("MANUAL bootstrap: put the board in its bootloader NOW.")
+        say("  Drop CSTM65: double-tap the reset button on the underside.")
+        say("  It should mount as a UF2 drive (nothing types while it is in")
+        say("  the bootloader -- that is expected).")
+        say("")
+        say("waiting up to %ds for the UF2 drive ..." % args.wait)
+        qr.wait_for(lambda: qr.find_uf2_dev() is not None, args.wait)
+        dev = qr.find_uf2_dev()
+    else:
+        if not qr.present():
+            sys.stderr.write(
+                "qmk-ripple-admin: keyboard not on the USB bus.\n"
+                "  If it IS plugged in and still has stock firmware, this "
+                "command\n  cannot ask it to jump. Use --manual.\n")
+            return 2
+        say("asking the board to jump to its bootloader ...")
+        try:
+            qr.send("bootloader")
+        except qr.NotFound:
+            sys.stderr.write(
+                "qmk-ripple-admin: no raw-HID interface, so the board cannot "
+                "be\n  asked to jump. This is the stock-firmware case: use "
+                "--manual.\n")
+            return 2
+        except qr.Error as e:
+            sys.stderr.write("qmk-ripple-admin: %s\n" % e)
+            return 1
+        say("waiting up to %ds for the UF2 drive ..." % args.wait)
+        qr.wait_for(lambda: qr.find_uf2_dev() is not None, args.wait)
+        dev = qr.find_uf2_dev()
+
+    if not dev:
+        say("")
+        say("No UF2 drive appeared.")
+        stranded()
+        return 1
+
+    say("UF2 drive: %s" % dev)
+    mp = qr.mountpoint(dev)
+    if mp:
+        say("already mounted at %s" % mp)
+    elif args.sudo:
+        mp = sudo_mount(dev)
+    else:
+        # udisks handles the uevent asynchronously; mounting the instant the
+        # device appears fails with "Error looking up object for device".
+        mp = qr.udisks_mount(dev, log=lambda m: m and say("  %s" % m))
+    if not mp:
+        say("")
+        say("Could not mount %s. Re-run with --sudo for a plain mount."
+            % dev)
+        stranded()
+        return 1
+
+    say("mounted at %s" % mp)
+    info = os.path.join(mp, "INFO_UF2.TXT")
+    if os.path.exists(info):
+        with open(info) as f:
+            for line in f.read().splitlines()[:3]:
+                say("  %s" % line)
+    else:
+        say("  WARNING: no INFO_UF2.TXT -- is this really the board?")
+
+    say("copying (the board reboots itself the moment the image lands) ...")
+    # The board leaves the bus mid-write, so I/O errors HERE are the expected
+    # success path, not a failure. The verdict is the re-enumeration below.
+    try:
+        with open(uf2, "rb") as src:
+            data = src.read()
+        with open(os.path.join(mp, os.path.basename(uf2)), "wb") as dst:
+            dst.write(data)
+            dst.flush()
+            os.fsync(dst.fileno())
+    except OSError as e:
+        say("  (write reported %s -- normal if the board already rebooted)" % e)
+
+    say("waiting up to %ds for the keyboard to come back ..." % args.wait)
+    qr.wait_for(qr.present, args.wait)
+    if qr.present():
+        say("")
+        say("SUCCESS: the board re-enumerated on the new firmware.")
+        say("The keys should be lit, with the ripple effect on keypress.")
+        return 0
+    say("")
+    say("The keyboard has NOT come back. Unplug and replug it; the firmware")
+    say("is already written.")
+    return 1
+
+
+def stranded():
+    say("The board may still be in the BOOTLOADER with its keys dead.")
+    say("Nothing was written, so the old firmware is intact. Either:")
+    say("  - re-run this command (it detects the bootloader and skips the")
+    say("    jump), or")
+    say("  - power-cycle the keyboard (unplug/replug) to leave it as it was.")
+
+
+def sudo_mount(dev):
+    mnt = "/run/qmk-ripple-mnt"
+    subprocess.run(["sudo", "mkdir", "-p", mnt])
+    subprocess.run(["sudo", "mount", "-t", "vfat",
+                    "-o", "uid=%d" % os.getuid(), dev, mnt])
+    return qr.mountpoint(dev)
+
+
+def shutil_which(name):
+    for d in os.environ.get("PATH", "").split(os.pathsep):
+        p = os.path.join(d, name)
+        if os.access(p, os.X_OK):
+            return p
+    return None
+
+
+def do_bootloader():
+    """Jump to the flasher and stop there (no flash). For a manual flash, or
+    to check the red indicator."""
+    try:
+        qr.send("bootloader")
+    except qr.NotFound:
+        sys.stderr.write(
+            "qmk-ripple-admin: no raw-HID interface, so the board cannot be\n"
+            "  asked to jump. On stock firmware, enter the bootloader by hand\n"
+            "  (Drop CSTM65: double-tap reset).\n")
+        return 2
+    except qr.Error as e:
+        sys.stderr.write("qmk-ripple-admin: %s\n" % e)
+        return 1
+    say("jump sent. The keys should turn RED and the board should mount as a")
+    say("UF2 drive; it stays there until it is flashed or power-cycled.")
+    say("`qmk-ripple-admin flash` picks a board up from here.")
+    return 0
+
+
+# --- install / check ---------------------------------------------------------
+def do_install():
+    """Install the udev rule (idempotent)."""
+    if os.path.exists(qr.RULE_PATH):
+        with open(qr.RULE_PATH) as f:
+            if f.read() == qr.RULE_TEXT:
+                say("udev rule already current")
+                return 0
+    say("installing %s (sudo)" % qr.RULE_PATH)
+    try:
+        p = subprocess.run(["sudo", "tee", qr.RULE_PATH], input=qr.RULE_TEXT,
+                           text=True, stdout=subprocess.DEVNULL)
+        if p.returncode != 0:
+            return 1
+        subprocess.run(["sudo", "udevadm", "control", "--reload"], check=True)
+        subprocess.run(["sudo", "udevadm", "trigger",
+                        "--subsystem-match=hidraw"], check=True)
+    except (OSError, subprocess.CalledProcessError) as e:
+        sys.stderr.write("qmk-ripple-admin: install failed: %s\n" % e)
+        return 1
+    say("udev rule installed")
+    return 0
+
+
+def do_check():
+    """Audit: [OK]/[WARN]/[FAIL] markers, non-zero exit on drift.
+
+    Reports only what it can PROVE. It never claims the ripple firmware is
+    installed, because nothing on the wire can show that: see
+    USAGE_PAGE_WARNING.
+    """
+    rc = 0
+    if os.path.exists(qr.RULE_PATH) and \
+            open(qr.RULE_PATH).read() == qr.RULE_TEXT:
+        say("[OK]   udev rule installed and current")
+    else:
+        say("[FAIL] udev rule missing or stale (%s)" % qr.RULE_PATH)
+        rc = 1
+
+    usb = qr.find_usb_dir()
+    if usb is None:
+        say("[WARN] keyboard not on the USB bus (unplugged, or in its "
+            "bootloader)")
+    else:
+        say("[OK]   keyboard on the USB bus (%s)" % usb)
+
+    node = qr.find_node()
+    if node is None:
+        if usb is not None:
+            say("[WARN] no 0xFF60 raw-HID interface on the board")
+            say("       Most likely it is still running STOCK firmware. "
+                "off/on/")
+            say("       bootloader cannot work until it is flashed; see "
+                "`flash --manual`.")
+    elif os.access(node, os.W_OK):
+        say("[OK]   raw-HID interface present and writable (%s)" % node)
+        say("       NOTE: this does not prove the ripple firmware is running "
+            "(0xFF60")
+        say("       is the shared QMK/VIA page). It proves only that SOME "
+            "raw-HID")
+        say("       firmware is answering.")
+    else:
+        say("[FAIL] raw-HID node present but not writable (%s)" % node)
+        say("       The udev rule needs a relogin, or `install` was never run.")
+        rc = 1
+
+    dev = qr.find_uf2_dev()
+    if dev:
+        say("[WARN] a UF2 bootloader drive is mounted at %s -- the board is "
+            "in" % dev)
+        say("       its flasher, not running firmware. `flash` will pick it "
+            "up.")
+    return rc
+
+
+# --- selftest ----------------------------------------------------------------
+def do_selftest():
+    """Prove the relight-on-enumeration fix, without a reboot.
+
+    Blank the backlight, then port-reset the board. A port reset is the same
+    bus-reset-then-reconfigure a host reboot produces, with no loss of power,
+    which is exactly the case that used to strand the LEDs dark. Needs root
+    only for the USBDEVFS_RESET ioctl.
+    """
+    usb = qr.find_usb_dir()
+    if usb is None:
+        sys.stderr.write("qmk-ripple-admin: keyboard not on the USB bus\n")
+        return 2
+    if qr.find_node() is None:
+        sys.stderr.write(
+            "qmk-ripple-admin: no raw-HID interface, so the backlight cannot "
+            "be\n  driven. Nothing to selftest until the board is flashed.\n")
+        return 2
+    node = qr.usb_devnode(usb)
+    say("keyboard: %s -> %s" % (usb, node))
+    say("")
+    say("STEP 1: blanking the backlight (what a screen blank does) ...")
+    try:
+        qr.send("off")
+    except (qr.Error, qr.NotFound) as e:
+        sys.stderr.write("qmk-ripple-admin: %s\n" % e)
+        return 1
+    time.sleep(3)
+    say("        --> the keys should be DARK right now.")
+    say("")
+    say("STEP 2: USB port reset (what a reboot looks like to the board) ...")
+    code = ("import fcntl, os, sys\n"
+            "fd = os.open(sys.argv[1], os.O_WRONLY)\n"
+            "try:\n"
+            "    fcntl.ioctl(fd, (ord('U') << 8) | 20, 0)\n"
+            "finally:\n"
+            "    os.close(fd)\n")
+    p = subprocess.run(["sudo", sys.executable, "-c", code, node])
+    if p.returncode != 0:
+        sys.stderr.write("qmk-ripple-admin: port reset failed\n")
+        return 1
+    say("        waiting for the board to come back ...")
+    qr.wait_for(qr.present, 30)
+    if not qr.present():
+        sys.stderr.write("qmk-ripple-admin: board did not re-enumerate\n")
+        return 1
+    time.sleep(2)
+    say("")
+    say("RESULT: look at the keyboard.")
+    say("  LIT  -> the relight works (it recovered with no host help).")
+    say("  DARK -> it did not; the board needs the current firmware flashed.")
+    say("")
+    say("Either way the board is fine; `qmk-ripple on` relights it.")
+    return 0
+
+
+# --- main --------------------------------------------------------------------
+def main():
+    ap = argparse.ArgumentParser(
+        prog="qmk-ripple-admin",
+        description="Build, flash, install and audit the ripple keyboard. "
+                    "Routine on/off control lives in `qmk-ripple`.",
+        epilog="first flash\n-----------\n%s\n\nwhy 0xFF60 is not proof\n"
+               "-----------------------\n%s\n"
+               % (qr.FIRST_FLASH_NOTE, qr.USAGE_PAGE_WARNING),
+        formatter_class=argparse.RawDescriptionHelpFormatter)
+    sub = ap.add_subparsers(dest="cmd", required=True)
+
+    b = sub.add_parser("build", help="compile the firmware")
+    b.add_argument("board", nargs="?", default=DEFAULT_BOARD)
+    b.add_argument("keymap", nargs="?", default=DEFAULT_KEYMAP)
+
+    f = sub.add_parser("flash", help="flash the firmware")
+    f.add_argument("file", nargs="?", help="a .uf2 (default: the last build)")
+    f.add_argument("--manual", action="store_true",
+                   help="do NOT ask the board to jump; wait for you to put it "
+                        "in its bootloader by hand. Required for the FIRST "
+                        "flash of a board that does not run ripple yet.")
+    f.add_argument("--sudo", action="store_true",
+                   help="mount with plain mount(8) instead of udisks")
+    f.add_argument("--wait", type=int, default=40, help="per-step timeout (s)")
+    f.add_argument("--board", default=DEFAULT_BOARD)
+    f.add_argument("--keymap", default=DEFAULT_KEYMAP)
+
+    sub.add_parser("bootloader",
+                   help="jump to the flasher without flashing anything")
+    sub.add_parser("install", help="install the udev access rule (sudo)")
+    sub.add_parser("check", help="audit the install")
+    sub.add_parser("selftest", help="prove the relight works (sudo)")
+
+    a = ap.parse_args()
+    if a.cmd == "build":
+        return do_build(a.board, a.keymap)
+    if a.cmd == "flash":
+        return do_flash(a)
+    if a.cmd == "bootloader":
+        return do_bootloader()
+    if a.cmd == "install":
+        return do_install()
+    if a.cmd == "check":
+        return do_check()
+    if a.cmd == "selftest":
+        return do_selftest()
+    return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

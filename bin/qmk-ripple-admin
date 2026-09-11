@@ -452,7 +452,7 @@ def do_selftest(protocol_only=False):
 
 # --- main --------------------------------------------------------------------
 def main():
-    ap = argparse.ArgumentParser(
+    ap = qr.Parser(
         prog="qmk-ripple-admin",
         description="Build, flash, install and audit the ripple keyboard. "
                     "Routine on/off control lives in `qmk-ripple`.",

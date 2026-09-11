@@ -36,6 +36,7 @@ enum hostctl_cmd {
 
 enum ripple_subcmd {
     RIPPLE_SUB_IDENTIFY = 0x00,
+    RIPPLE_SUB_STATUS   = 0x01,
     RIPPLE_SUB_GET      = 0x10,
     RIPPLE_SUB_SET      = 0x11,
     RIPPLE_SUB_SAVE     = 0x12,
@@ -49,7 +50,7 @@ enum ripple_status {
     RIPPLE_EBADCMD  = 0x03,  // no such subcommand
 };
 
-#define RIPPLE_PROTO_VERSION 1
+#define RIPPLE_PROTO_VERSION 2   // 2 adds STATUS
 #define RIPPLE_MAGIC0 'R'
 #define RIPPLE_MAGIC1 'P'
 #define RIPPLE_MAGIC2 'L'
@@ -222,6 +223,17 @@ static void ripple_handle(uint8_t *data, uint8_t length) {
             data[REP_VALUE + 3] = RIPPLE_PROTO_VERSION;
             data[REP_VALUE + 4] = RIPPLE_CONFIG_VERSION;
             data[REP_VALUE + 5] = RIPPLE_NPARAMS;
+            break;
+        case RIPPLE_SUB_STATUS:
+            // LIVE runtime state, deliberately NOT a parameter: whether the
+            // matrix is lit right now is not config, is never saved, and must
+            // not be settable here. It exists so a verify hook can catch the
+            // one failure this package keeps rediscovering -- the screen dark
+            // and the keys still lit -- which is invisible otherwise, because
+            // off/on are fire-and-forget writes with nothing to read back.
+            ripple_reply(data, sub, RIPPLE_OK, 0);
+            data[REP_VALUE]     = rgb_matrix_is_enabled() ? 1 : 0;
+            data[REP_VALUE + 1] = ripple_config.mode;
             break;
         case RIPPLE_SUB_GET:
             m = ripple_meta(id);

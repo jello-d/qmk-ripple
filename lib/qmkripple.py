@@ -14,6 +14,7 @@ sysfs reads plus a write to a hidraw node.
 """
 import glob
 import os
+import sys
 import select
 import subprocess
 import time
@@ -62,8 +63,35 @@ send control bytes to a board just because the interface is there; on an
 unconfirmed board, flash with --manual instead."""
 
 
+# argparse exits 2 on a usage error, which COLLIDES with our documented
+# "keyboard not found" code. That collision is not theoretical: an older
+# deployed binary rejecting a new subcommand looked exactly like an absent
+# keyboard, and a verify hook treated it as a benign no-op and passed. Usage
+# errors get EX_USAGE (64) so every code means one thing.
+EX_USAGE = 64
+
+
+def Parser(**kw):
+    """argparse.ArgumentParser that exits EX_USAGE, not 2, on a usage error."""
+    import argparse
+
+    class _P(argparse.ArgumentParser):
+        def error(self, message):
+            self.print_usage(sys.stderr)
+            sys.stderr.write("%s: error: %s\n" % (self.prog, message))
+            sys.exit(EX_USAGE)
+
+    return _P(**kw)
+
+
 class Error(Exception):
     """A fatal, already-explained error. Callers print it and exit 1."""
+
+
+class Unsupported(Error):
+    """The firmware is too old to answer this. Distinct from a failure,
+    because "I could not check" and "the check failed" must not look the same
+    to a verify hook: one is a gap, the other is a fault."""
 
 
 class NotFound(Exception):
@@ -183,8 +211,8 @@ def send(cmd, vid=VID, pid=PID):
 # VIA's id_set_keyboard_value, a WRITE. That is also what makes IDENTIFY
 # trustworthy: only this firmware answers with the magic.
 PREFIX = 0x52
-SUB_IDENTIFY, SUB_GET, SUB_SET, SUB_SAVE, SUB_RESET = 0x00, 0x10, 0x11, \
-    0x12, 0x13
+SUB_IDENTIFY, SUB_STATUS = 0x00, 0x01
+SUB_GET, SUB_SET, SUB_SAVE, SUB_RESET = 0x10, 0x11, 0x12, 0x13
 MAGIC = b"RPL"
 
 ST_OK, ST_EBADID, ST_ERANGE, ST_EBADCMD = 0x00, 0x01, 0x02, 0x03
@@ -314,6 +342,23 @@ def identify(vid=VID, pid=PID):
             "  tuning protocol. Reflash to get these commands.")
     return {"proto": reply[7], "config_version": reply[8],
             "nparams": reply[9]}
+
+
+def status(vid=VID, pid=PID):
+    """LIVE runtime state: is the matrix lit right now, and in which mode.
+
+    Distinct from get_param(): this is not config and is never saved. It is
+    what a verify hook reads to catch a dark screen over lit keys, which
+    off/on cannot detect because they are fire-and-forget writes.
+    """
+    r = xfer([PREFIX, SUB_STATUS], vid, pid)
+    if r[0] != PREFIX or r[2] == ST_EBADCMD:
+        raise Unsupported(
+            "this firmware does not answer STATUS (protocol v2+ needed).\n"
+            "  Reflash to get it: qmk-ripple-admin build && "
+            "qmk-ripple-admin flash")
+    check_status(r, "status")
+    return {"lit": bool(r[4]), "mode": decode("mode", r[5])}
 
 
 def check_status(reply, what):

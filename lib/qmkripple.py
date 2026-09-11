@@ -29,14 +29,33 @@ CMDS = {"off": 0x01, "on": 0x02, "bootloader": 0x03}
 
 # --- the udev rule -----------------------------------------------------------
 RULE_PATH = "/etc/udev/rules.d/60-qmk-ripple.rules"
+# Group for the seat-INDEPENDENT grant in the rule below. plugdev because the
+# desktop user is normally already a member, so this needs no new membership
+# and no relogin. Change it here if a deployment wants a dedicated group.
+ACCESS_GROUP = "plugdev"
 RULE_TEXT = """\
-# Grant the active-seat user access to the ripple keyboard's raw-HID interface
-# (Drop CSTM65, 359b:0010), so qmk-ripple can send backlight off/on without
-# root. uaccess = an ACL for the logged-in session user, same mechanism as the
-# ddcutil/i2c and input rules. Installed by `qmk-ripple-admin install`.
-KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="%04x", \
-ATTRS{idProduct}=="%04x", TAG+="uaccess"
-""" % (VID, PID)
+# Access to the ripple keyboard's raw-HID interface (Drop CSTM65, 359b:0010)
+# so qmk-ripple can drive the backlight without root. Installed by
+# `qmk-ripple-admin install`.
+#
+# TWO grants, because either alone leaves a hole:
+#
+# uaccess is an ACL for the user of the ACTIVE SEAT. It covers the normal
+# desktop case and follows whoever logs in. But it is exactly wrong BEFORE a
+# graphical login: at the greeter, seat0 belongs to _greetd, so the node is
+# _greetd's and anything running as the desktop user gets EACCES. Not
+# hypothetical -- the sleep/suspend hooks run from system units as the desktop
+# user, so a suspend from the greeter could not turn the keyboard off at all.
+#
+# GROUP+MODE is seat-independent, so the owning user can drive the board with
+# no session at all. A USB keyboard is exactly a "pluggable device".
+#
+# Scope: this lets any {g} process talk to THIS vid:pid, which includes the
+# bootloader jump -- the same trust boundary {g} already implies on a
+# single-user workstation.
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{{idVendor}}=="{vid:04x}", \
+ATTRS{{idProduct}}=="{pid:04x}", TAG+="uaccess", GROUP="{g}", MODE="0660"
+""".format(g=ACCESS_GROUP, vid=VID, pid=PID)
 
 # --- the two warnings every tool has to be able to print ---------------------
 # Written ONCE here so the command help, the error paths, and the docs cannot

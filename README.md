@@ -32,6 +32,7 @@ runs it on every blank and unblank, so it is small, dependency-free, and has no
 privileged code in it at all.
 
     qmk-ripple off | on              backlight (transient; see below)
+    qmk-ripple status [--expect X]   is it lit RIGHT NOW? (reads the board)
     qmk-ripple mode flat | ripple    plain colour, or the reactive effect
     qmk-ripple show                  every parameter, with its range
     qmk-ripple get NAME
@@ -42,6 +43,33 @@ privileged code in it at all.
 The bootloader jump is NOT here: it is a flashing operation, and its byte has
 teeth (see the collision table below), so the command that runs on every
 screen blank must not be able to send it.
+
+`off`/`on` are write-only and never wait for a reply, which is what keeps them
+cheap enough for the blank path -- but it also means they cannot tell you
+whether they worked. `status` reads the LIVE matrix state back off the board,
+so "did it take?" is answerable. `--expect on|off` turns that into an exit
+code, which is what a verify hook branches on:
+
+    qmk-ripple status --expect off || echo "still lit when it should be dark"
+
+### Exit codes
+
+They are a contract, not decoration: a caller that cannot tell these apart
+will eventually report a failure as a no-op.
+
+| code | meaning |
+|------|---------|
+| 0 | ok, including a match from `--expect` |
+| 1 | an error, or `--expect` did not match (a FAULT) |
+| 2 | no keyboard on the bus (benign; a caller may ignore it) |
+| 3 | the firmware cannot answer (a GAP -- could not check, not a failure) |
+| 64 | usage error (`EX_USAGE`) |
+
+64 exists because argparse's default is 2, which collided with "no keyboard":
+an older deployed binary rejecting a new subcommand looked exactly like an
+absent board, and a verify hook read it as benign and passed. Distinguishing a
+gap (3, 64) from a fault (1) is the point -- reporting "I could not check" as a
+failure trains people to ignore alerts, and the reverse hides real breakage.
 
 `bin/qmk-ripple-admin` is the rare half, allowed to be slow, chatty and
 privileged:
@@ -212,6 +240,40 @@ which the provisioner runs separately.
 The links must be symlinks resolving into the checkout, not copies: the
 commands self-locate `lib/qmkripple.py` through their own path, and the
 provisioner's "is it installed?" test compares realpaths.
+
+### Device access: two grants, on purpose
+
+`qmk-ripple-admin install` writes a udev rule that grants the raw-HID node
+twice, because either grant alone leaves a hole:
+
+    TAG+="uaccess"                    an ACL for the user of the ACTIVE SEAT
+    GROUP="plugdev", MODE="0660"      seat-independent
+
+`uaccess` is the natural fit for a desktop: it follows whoever logs in, and it
+needs no group membership. But it is exactly wrong *before* a graphical login.
+At the greeter, seat0 belongs to the greeter user, so the node does too:
+
+    $ getfacl -p /dev/hidraw5          # at the greeter, nobody logged in
+    user::rw-
+    user:_greetd:rw-                   # and no entry for the desktop user
+
+That matters because a screen-power daemon's sleep hooks typically run from
+**system units** as the desktop user. With only `uaccess`, a suspend from the
+greeter cannot turn the keyboard off at all, and nothing running as that user
+can fix it from that state. The group grant closes it; `plugdev` because the
+desktop user is normally already a member, so it costs no new membership and
+no relogin. `ACCESS_GROUP` in `lib/qmkripple.py` is the one place to change it.
+
+Note the scope this widens: any `plugdev` process can reach this vid:pid,
+including the bootloader jump. That is the trust boundary `plugdev` already
+implies on a single-user workstation, but it is a widening, and the rule says
+so in its own comments rather than leaving it implicit.
+
+A stale deployment reports itself healthy here, which is worth knowing:
+`install` and `check` compare the installed rule against the `RULE_TEXT`
+compiled into whichever binary runs them, so an out-of-date copy will say
+"already current" about a rule it is no longer the authority on. If `check` is
+green but behaviour disagrees, confirm the deployed version first.
 
 `bin/` and `lib/` must stay siblings in the checkout: both commands locate
 `lib/qmkripple.py` by resolving their own path *through* the PATH symlink, and

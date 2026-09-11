@@ -14,10 +14,21 @@ sysfs reads plus a write to a hidraw node.
 """
 import glob
 import os
+import signal
 import sys
 import select
 import subprocess
 import time
+
+# Python turns a closed stdout into a BrokenPipeError traceback, so `check |
+# head -1` printed a stack trace over what is otherwise clean [OK]/[FAIL]
+# output and looked like the tool had crashed. Restore the default SIGPIPE
+# disposition: a CLI piped into head should die quietly, like every other one.
+# Done here because this module is private to the package's commands.
+try:
+    signal.signal(signal.SIGPIPE, signal.SIG_DFL)
+except (AttributeError, ValueError):
+    pass  # not POSIX, or not the main thread; harmless either way
 
 # --- the board ---------------------------------------------------------------
 VID, PID = 0x359B, 0x0010          # Drop CSTM65

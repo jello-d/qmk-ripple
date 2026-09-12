@@ -1,2 +1,8 @@
 __pycache__/
 *.pyc
+
+# Local agent context and state; never part of the public repo.
+# CLAUDE.md is a symlink into the private shared-notes repo.
+CLAUDE.md
+CLAUDE.local.md
+.claude/

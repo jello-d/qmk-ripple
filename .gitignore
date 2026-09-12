@@ -1,3 +1,5 @@
+# Local dev context, never in the public repo (linked to the shared-notes repo).
+CLAUDE.md
 __pycache__/
 *.pyc
 

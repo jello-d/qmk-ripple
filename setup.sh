@@ -12,20 +12,35 @@
 #     mapping"), passing PREFIX / XDG_BIN_HOME / XDG_DATA_HOME. Honouring those
 #     is why the same script serves both.
 #
-# SYMLINKS, not copies, and specifically symlinks whose realpath is the file in
+# SYMLINKS by default, and specifically symlinks whose realpath is the file in
 # this checkout: the commands self-locate lib/qmkripple.py by resolving their
 # own path THROUGH the link, and a provisioner's "is it installed?" test
 # compares realpaths. A copy would break both.
 #
-# NON-PRIVILEGED on purpose. This never uses sudo, because the provisioner's
-# package mode is non-privileged. The one privileged step in the package -- the
-# raw-HID udev rule -- stays behind `qmk-ripple-admin install`, which is
-# reported as a next step below rather than run from here.
+# QMKRIPPLE_INSTALL_COPY=1 switches to real-file COPIES, and also installs
+# lib/qmkripple.py, because a symlink farm cannot serve a SYSTEM prefix. The
+# clone lives under a login user's home (0750, and ~/.cache is 0700), so
+# /usr/local/bin/qmk-ripple as a symlink is a path another user can see and
+# cannot follow. That is not hypothetical: with greeter coverage on, the
+# keyboard hook was wired into /etc/vigilance/hooks pointing at ~/bin, the
+# greeter could not traverse the home, and the screen blanked while the
+# keyboard stayed lit -- wired up cleanly, doing nothing.
+#
+# In copy mode lib/ is copied too, next to bin/ under the same PREFIX, so the
+# same self-locating logic (realpath -> ../lib) finds it there.
+#
+# NON-PRIVILEGED on purpose: this never calls sudo, because the provisioner's
+# package mode does not. A system prefix is written by the CALLER running this
+# under sudo (which is how tackup does it for vigilance). The one privileged
+# step in the package -- the raw-HID udev rule -- stays behind
+# `qmk-ripple-admin install`, reported as a next step rather than run here.
 set -eu
 
 HERE=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 PREFIX=${PREFIX:-$HOME/.local}
 BIN=${XDG_BIN_HOME:-$PREFIX/bin}
+LIB=${QMKRIPPLE_LIB_DIR:-$PREFIX/lib}
+COPY=${QMKRIPPLE_INSTALL_COPY:-0}
 
 usage() {
   echo "usage: sh setup.sh {install | check | uninstall}" >&2
@@ -42,10 +57,24 @@ each_bin() {
 
 do_install() {
   mkdir -p "$BIN"
-  each_bin | while IFS= read -r b; do
-    ln -rsfn "$b" "$BIN/$(basename "$b")"
-    echo "linked $BIN/$(basename "$b")"
-  done
+  if [ "$COPY" = 1 ]; then
+    # Real files, and lib alongside them: see the header. Re-copied every run,
+    # because a copy goes stale against the checkout silently.
+    mkdir -p "$LIB"
+    each_bin | while IFS= read -r b; do
+      cp -f "$b" "$BIN/$(basename "$b")"
+      chmod 0755 "$BIN/$(basename "$b")"
+      echo "copied $BIN/$(basename "$b")"
+    done
+    cp -f "$HERE/lib/qmkripple.py" "$LIB/qmkripple.py"
+    chmod 0644 "$LIB/qmkripple.py"
+    echo "copied $LIB/qmkripple.py"
+  else
+    each_bin | while IFS= read -r b; do
+      ln -rsfn "$b" "$BIN/$(basename "$b")"
+      echo "linked $BIN/$(basename "$b")"
+    done
+  fi
   _n=$(each_bin | wc -l)
   echo "qmk-ripple: $_n command(s) installed into $BIN"
   case ":$PATH:" in
@@ -71,11 +100,20 @@ do_check() {
   # and the exit code ignored (deliberately: a dimming hiccup must never wedge
   # a lock screen), so that failure is INVISIBLE downstream and shows up only
   # as a keyboard that quietly stopped blanking. Hence: check it here.
-  if [ -f "$HERE/lib/qmkripple.py" ]; then
-    echo "[OK]   lib/qmkripple.py present"
-  else
+  if [ ! -f "$HERE/lib/qmkripple.py" ]; then
     echo "[FAIL] lib/qmkripple.py missing -- every command will fail to start"
     _rc=1
+  elif [ "$COPY" = 1 ] && [ ! -f "$LIB/qmkripple.py" ]; then
+    # In copy mode the commands resolve lib next to the PREFIX, not in the
+    # checkout, so the copy is what has to be there.
+    echo "[FAIL] $LIB/qmkripple.py missing -- copied commands cannot start"
+    _rc=1
+  elif [ "$COPY" = 1 ] && ! cmp -s "$LIB/qmkripple.py" "$HERE/lib/qmkripple.py"
+  then
+    echo "[FAIL] $LIB/qmkripple.py is a STALE copy"
+    _rc=1
+  else
+    echo "[OK]   lib/qmkripple.py present"
   fi
   for b in "$HERE"/bin/*; do
     [ -f "$b" ] && [ -x "$b" ] || continue
@@ -84,6 +122,19 @@ do_check() {
     if [ ! -e "$_l" ]; then
       echo "[FAIL] missing $_l"
       _rc=1
+    elif [ "$COPY" = 1 ]; then
+      # Copy mode: a symlink here is the bug tackup documents (a path the
+      # greeter can see and cannot follow into a 0750 home), and a copy that
+      # has drifted from the checkout is the other one. Both are caught.
+      if [ -L "$_l" ]; then
+        echo "[FAIL] $_l is a SYMLINK; copy mode needs a real file"
+        _rc=1
+      elif ! cmp -s "$_l" "$b"; then
+        echo "[FAIL] $_l is a STALE copy (differs from the checkout)"
+        _rc=1
+      else
+        echo "[OK]   $_l (copy)"
+      fi
     elif [ "$(readlink -f "$_l")" != "$(readlink -f "$b")" ]; then
       # Not just "a file is there": it must resolve to THIS checkout, or the
       # commands on PATH are someone else's copy and every other check lies.
@@ -118,6 +169,9 @@ do_uninstall() {
        [ "$(readlink -f "$_l")" = "$(readlink -f "$b")" ]; then
       rm -f "$_l"
       echo "removed $_l"
+    elif [ "$COPY" = 1 ] && [ -f "$_l" ] && cmp -s "$_l" "$b"; then
+      rm -f "$_l"
+      echo "removed $_l (copy)"
     elif [ -e "$_l" ]; then
       echo "left alone (not ours): $_l"
     fi

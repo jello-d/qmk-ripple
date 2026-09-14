@@ -42,6 +42,18 @@ BIN=${XDG_BIN_HOME:-$PREFIX/bin}
 LIB=${QMKRIPPLE_LIB_DIR:-$PREFIX/lib}
 COPY=${QMKRIPPLE_INSTALL_COPY:-0}
 
+# CLASSIFY PER COMMAND, not per package. Only ONE command here is ever run by
+# an identity other than the login user: `qmk-ripple`, which an integrator's
+# sleep/wake hook calls as the greeter account so the keyboard darkens before
+# anyone has logged in. `qmk-ripple-admin` and `qmk-ripple-bootstrap` are
+# human-run (build, flash, audit, one-time setup) and have no business in a
+# root-owned tree, so copy mode installs this subset and nothing else.
+#
+# Which of these is actually PUBLISHED onto PATH is the integrator's call, not
+# ours (tackup names them: `share_system_command <prefix> qmk-ripple`). We only
+# decide what is ELIGIBLE by putting it in the system tree.
+SYSTEM_TOOLS=${QMKRIPPLE_SYSTEM_TOOLS:-qmk-ripple}
+
 usage() {
   echo "usage: sh setup.sh {install | check | uninstall}" >&2
   exit 1
@@ -50,30 +62,54 @@ usage() {
 # Every command the package ships, discovered rather than listed, so adding one
 # to bin/ needs no edit here (and cannot be silently forgotten).
 each_bin() {
-  for _b in "$HERE"/bin/*; do
-    [ -f "$_b" ] && [ -x "$_b" ] && printf '%s\n' "$_b"
-  done
+  if [ "$COPY" = 1 ]; then
+    # System tree: the shared subset only (see SYSTEM_TOOLS).
+    for _b in $SYSTEM_TOOLS; do
+      [ -x "$HERE/bin/$_b" ] || { echo "setup.sh: no bin/$_b" >&2; exit 1; }
+      printf '%s\n' "$HERE/bin/$_b"
+    done
+  else
+    for _b in "$HERE"/bin/*; do
+      [ -f "$_b" ] && [ -x "$_b" ] && printf '%s\n' "$_b"
+    done
+  fi
+}
+
+# _place <src> <dst>: install one file, copy-or-link per mode.
+#
+# --remove-destination: replacing a file another process is running can fail
+# ETXTBSY otherwise; unlinking first lets a live process keep the old inode.
+#
+# THE CHOWN IS NOT OPTIONAL, and is why this is a function rather than a bare
+# cp. Vigilance hit it on a real box: a root install that preserves the
+# source's ownership leaves a system binary owned by the LOGIN USER -- a file
+# the greeter executes that an unprivileged account can rewrite at will. Plain
+# cp does not preserve ownership the way `cp -a` does, but being explicit costs
+# nothing and the failure is privilege escalation, so assert it rather than
+# rely on a flag's default.
+_place() {
+  if [ "$COPY" = 1 ]; then
+    cp -f --remove-destination "$1" "$2"
+    chmod "$3" "$2"
+    if [ "$(id -u)" = 0 ]; then chown root:root "$2"; fi
+  else
+    ln -rsfn "$1" "$2"
+  fi
 }
 
 do_install() {
   mkdir -p "$BIN"
+  if [ "$COPY" = 1 ]; then _verb=copied; else _verb=linked; fi
+  each_bin | while IFS= read -r b; do
+    _place "$b" "$BIN/$(basename "$b")" 0755
+    echo "$_verb $BIN/$(basename "$b")"
+  done
   if [ "$COPY" = 1 ]; then
-    # Real files, and lib alongside them: see the header. Re-copied every run,
-    # because a copy goes stale against the checkout silently.
+    # lib travels with the tree: the commands resolve it beside their OWN real
+    # path, so under a system prefix it has to be there, not in the checkout.
     mkdir -p "$LIB"
-    each_bin | while IFS= read -r b; do
-      cp -f "$b" "$BIN/$(basename "$b")"
-      chmod 0755 "$BIN/$(basename "$b")"
-      echo "copied $BIN/$(basename "$b")"
-    done
-    cp -f "$HERE/lib/qmkripple.py" "$LIB/qmkripple.py"
-    chmod 0644 "$LIB/qmkripple.py"
-    echo "copied $LIB/qmkripple.py"
-  else
-    each_bin | while IFS= read -r b; do
-      ln -rsfn "$b" "$BIN/$(basename "$b")"
-      echo "linked $BIN/$(basename "$b")"
-    done
+    _place "$HERE/lib/qmkripple.py" "$LIB/qmkripple.py" 0644
+    echo "$_verb $LIB/qmkripple.py"
   fi
   _n=$(each_bin | wc -l)
   echo "qmk-ripple: $_n command(s) installed into $BIN"
@@ -115,8 +151,8 @@ do_check() {
   else
     echo "[OK]   lib/qmkripple.py present"
   fi
-  for b in "$HERE"/bin/*; do
-    [ -f "$b" ] && [ -x "$b" ] || continue
+  while IFS= read -r b; do
+    [ -n "$b" ] || continue
     _n=$((_n + 1))
     _l=$BIN/$(basename "$b")
     if [ ! -e "$_l" ]; then
@@ -150,7 +186,9 @@ do_check() {
     else
       echo "[OK]   $_l"
     fi
-  done
+  done <<EOF
+$(each_bin)
+EOF
   [ "$_n" -gt 0 ] || { echo "[FAIL] no executables in $HERE/bin"; _rc=1; }
   case ":$PATH:" in
     *":$BIN:"*) echo "[OK]   $BIN is on PATH" ;;
@@ -160,8 +198,8 @@ do_check() {
 }
 
 do_uninstall() {
-  for b in "$HERE"/bin/*; do
-    [ -f "$b" ] && [ -x "$b" ] || continue
+  while IFS= read -r b; do
+    [ -n "$b" ] || continue
     _l=$BIN/$(basename "$b")
     # Only remove a link we own. A same-named command from somewhere else is
     # left alone rather than silently deleted.
@@ -175,7 +213,9 @@ do_uninstall() {
     elif [ -e "$_l" ]; then
       echo "left alone (not ours): $_l"
     fi
-  done
+  done <<EOF
+$(each_bin)
+EOF
   echo ""
   echo "The udev rule is NOT removed by this; it is root-owned:"
   echo "    sudo rm -f /etc/udev/rules.d/60-qmk-ripple.rules"

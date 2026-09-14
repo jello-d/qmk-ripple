@@ -54,6 +54,22 @@ COPY=${QMKRIPPLE_INSTALL_COPY:-0}
 # decide what is ELIGIBLE by putting it in the system tree.
 SYSTEM_TOOLS=${QMKRIPPLE_SYSTEM_TOOLS:-qmk-ripple}
 
+# Where an integrator PUBLISHES a shared command. Once qmk-ripple is published
+# there, a user-mode install of the SAME name is the banned double: this dir
+# precedes ~/.local/bin on PATH, so the system copy silently wins and then rots
+# behind the live checkout. We refuse to create that rather than make it and
+# describe it.
+SHARED_BIN=${SHARED_BIN:-/usr/local/bin}
+
+# published <cmd>: 0 if a shared publish exists that is NOT this checkout's own
+# user-mode link (so a plain user install is not mistaken for a publish).
+published() {
+  _p=$SHARED_BIN/$1
+  [ -e "$_p" ] || return 1
+  [ "$(readlink -f "$_p")" = "$(readlink -f "$HERE/bin/$1")" ] && return 1
+  return 0
+}
+
 usage() {
   echo "usage: sh setup.sh {install | check | uninstall}" >&2
   exit 1
@@ -100,10 +116,22 @@ _place() {
 do_install() {
   mkdir -p "$BIN"
   if [ "$COPY" = 1 ]; then _verb=copied; else _verb=linked; fi
-  each_bin | while IFS= read -r b; do
-    _place "$b" "$BIN/$(basename "$b")" 0755
-    echo "$_verb $BIN/$(basename "$b")"
-  done
+  _n=0
+  while IFS= read -r b; do
+    [ -n "$b" ] || continue
+    _c=$(basename "$b")
+    if [ "$COPY" != 1 ] && published "$_c"; then
+      echo "SKIP $BIN/$_c: already published at $SHARED_BIN/$_c"
+      echo "     (installing it here too would put $_c on PATH TWICE, and"
+      echo "      $SHARED_BIN wins -- the shared copy is the only one)"
+      continue
+    fi
+    _place "$b" "$BIN/$_c" 0755
+    echo "$_verb $BIN/$_c"
+    _n=$((_n + 1))
+  done <<EOF
+$(each_bin)
+EOF
   if [ "$COPY" = 1 ]; then
     # lib travels with the tree: the commands resolve it beside their OWN real
     # path, so under a system prefix it has to be there, not in the checkout.
@@ -111,7 +139,6 @@ do_install() {
     _place "$HERE/lib/qmkripple.py" "$LIB/qmkripple.py" 0644
     echo "$_verb $LIB/qmkripple.py"
   fi
-  _n=$(each_bin | wc -l)
   echo "qmk-ripple: $_n command(s) installed into $BIN"
   case ":$PATH:" in
     *":$BIN:"*) ;;
@@ -155,6 +182,19 @@ do_check() {
     [ -n "$b" ] || continue
     _n=$((_n + 1))
     _l=$BIN/$(basename "$b")
+    if [ "$COPY" != 1 ] && published "$(basename "$b")"; then
+      # Published as shared. Absent from ~/.local/bin is CORRECT here; present
+      # is the double the standard bans, and it is invisible to a plain
+      # `command -v` (one winner reads as no shadow).
+      if [ -e "$_l" ] || [ -L "$_l" ]; then
+        echo "[FAIL] $(basename "$b") is on PATH TWICE: $_l shadowed by"
+        echo "       $SHARED_BIN/$(basename "$b") -- remove the user copy"
+        _rc=1
+      else
+        echo "[OK]   $(basename "$b") published at $SHARED_BIN (not here)"
+      fi
+      continue
+    fi
     if [ ! -e "$_l" ]; then
       echo "[FAIL] missing $_l"
       _rc=1

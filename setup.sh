@@ -230,9 +230,24 @@ do_check() {
 $(each_bin)
 EOF
   [ "$_n" -gt 0 ] || { echo "[FAIL] no executables in $HERE/bin"; _rc=1; }
+  # In copy mode the tree is DELIBERATELY off PATH: only the integrator's
+  # single /usr/local/bin symlink is published, so warning that $BIN is absent
+  # from PATH would be advice to create the very double the standard bans.
+  # Invert it -- the system tree being ON PATH is the thing worth flagging.
   case ":$PATH:" in
-    *":$BIN:"*) echo "[OK]   $BIN is on PATH" ;;
-    *) echo "[WARN] $BIN is not on PATH in this shell" ;;
+    *":$BIN:"*)
+      if [ "$COPY" = 1 ]; then
+        echo "[WARN] $BIN is ON PATH; the system tree should not be."
+        echo "       Publish one symlink instead, or the command resolves twice"
+      else
+        echo "[OK]   $BIN is on PATH"
+      fi ;;
+    *)
+      if [ "$COPY" = 1 ]; then
+        echo "[OK]   $BIN correctly off PATH (published via a symlink)"
+      else
+        echo "[WARN] $BIN is not on PATH in this shell"
+      fi ;;
   esac
   return "$_rc"
 }

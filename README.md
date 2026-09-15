@@ -286,7 +286,35 @@ nothing and the blank skips the keyboard.
 
 ## Development
 
-An 80-column limit is enforced by a tracked pre-commit hook. Enable it once
-per clone:
+    sh test/run          the whole suite; no keyboard needed
+    sh test/<name>.t     one test
+
+The suite is deliberately HARDWARE-FREE so a provisioner or CI can run it, and
+it is built around the failures this package has actually shipped rather than
+around coverage for its own sake. The recurring shape is TWO COPIES OF ONE
+FACT, so most tests pin a host-side table against its firmware counterpart:
+
+    protocol.t   wire offsets, subcommand ids, status codes, the magic
+    params.t     parameter ids/ranges/get+set arms across all four copies
+    defaults.t   the boot defaults, the x100 conversions, every codec
+    firmware.t   jump path, relight gating, versioned save, struct vs EEPROM
+    setup.t      user/system install modes, staleness, the shadow guard
+    placement.t  self-location through a publish, both udev grants
+    cli.t        the exit-code contract callers branch on
+    style.t      80 cols, shell syntax, python compiles, no em-dashes
+
+What it CANNOT cover is the wire itself: the firmware only answers on a real
+board, so these pin the host against the C SOURCE. Host and firmware could
+still be consistently wrong together if the board is not flashed. That half is
+`qmk-ripple-admin selftest`, which round-trips every parameter and proves the
+relight, and needs the keyboard attached.
+
+The harness refuses to pass a test that MODIFIED THE CHECKOUT. An install
+fixture leaves symlinks pointing at the repo, and a later write through one
+edits the real file -- which happened: test/setup.t truncated
+bin/qmk-ripple-admin to a single line on its first run.
+
+An 80-column limit is also enforced by a tracked pre-commit hook (style.t
+checks the whole tree; the hook checks the diff). Enable it once per clone:
 
     git config core.hooksPath .githooks

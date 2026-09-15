@@ -120,7 +120,7 @@ def run_admin(*argv):
 
 
 def main():
-    ap = argparse.ArgumentParser(
+    ap = qr.Parser(
         prog="qmk-ripple-bootstrap",
         description="One-time setup for a board that has never run this "
                     "firmware.",

@@ -1,0 +1,42 @@
+#!/bin/sh
+# test/run - run every qmk-ripple shell test (test/*.t) and report. Non-zero if
+# any fails. POSIX sh, no dependency beyond a shell, python3 and the checkout.
+#
+# NO HARDWARE. Every test here runs with no keyboard attached, so this suite is
+# the one a provisioner or a CI can run. What it CANNOT cover is the wire: the
+# firmware's side of the protocol only answers on a real board, so the tests
+# below pin the host against the C SOURCE (offsets, ids, defaults) rather than
+# against a running device. Those two can still disagree with reality together
+# if the firmware is not flashed -- `qmk-ripple-admin selftest` is the hardware
+# half and is not run from here.
+#
+# SKIPS ARE COUNTED AND PRINTED, because a green run that quietly omitted half
+# the suite is worse than a red one: this package has twice shipped a check
+# that passed by asking the wrong question.
+set -eu
+_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+
+_rc=0
+_pass=0
+_fail=0
+_skip=0
+for _t in "$_dir"/*.t; do
+  [ -f "$_t" ] || continue
+  _out=$(sh "$_t" 2>&1) || _rc=1
+  printf '%s\n' "$_out"
+  case "$(printf '%s\n' "$_out" | tail -1)" in
+    ok*)   _pass=$((_pass + 1)) ;;
+    SKIP*) _skip=$((_skip + 1)) ;;
+    *)     _fail=$((_fail + 1)) ;;
+  esac
+done
+
+printf '\n%d passed, %d failed, %d skipped\n' "$_pass" "$_fail" "$_skip"
+if [ "$_skip" -gt 0 ]; then
+  printf 'NOTE: %d skipped. Read the SKIP lines: they are gaps,\n' "$_skip"
+  printf '      not passes.\n'
+fi
+printf 'NOT covered here: anything needing the real keyboard. Run\n'
+printf '      qmk-ripple-admin selftest\n'
+printf 'on a box with the board attached for the wire-level half.\n'
+exit "$_rc"

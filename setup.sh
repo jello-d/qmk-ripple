@@ -70,6 +70,51 @@ published() {
   return 0
 }
 
+_first_bin() { each_bin | head -1 | sed 's|.*/||'; }
+
+# _audit_path <file>: nothing on the way to a root-executed file may be
+# rewritable by a non-root user.
+#
+# The FILES being root-owned is not enough, and assuming it was left a real
+# hole open: /usr/local sat owned by the login user while /usr/local/bin and
+# everything in it was root. A user who owns a directory can rename it and put
+# their own in its place, so the greeter would have executed whatever they
+# substituted. Every check was green throughout, because each looked at a file
+# and never at the path leading to it.
+#
+# A sticky directory (/tmp) is exempt: its write bit does not let one user
+# replace another's entries. A non-root owner is accepted only when it matches
+# the file's own owner, which is what makes this pass for an unprivileged
+# install into a scratch or home prefix while still catching the mixed case.
+_audit_path() {
+  [ -e "$1" ] || return 0
+  _owner=$(stat -c '%U' "$1" 2>/dev/null) || return 0
+  _p=$(dirname "$1")
+  _bad=0
+  while :; do
+    _po=$(stat -c '%U' "$_p" 2>/dev/null) || break
+    _pm=$(stat -c '%A' "$_p" 2>/dev/null) || break
+    if [ "$_po" != root ] && [ "$_po" != "$_owner" ]; then
+      echo "[FAIL] $_p is owned by $_po, but $1 is owned by $_owner:"
+      echo "       $_po can replace that directory and change what runs"
+      _bad=1
+    fi
+    # WORLD-writable and not sticky: anyone can replace entries here. The
+    # GROUP bit is deliberately not checked -- drwxrwxr-x under a private
+    # per-user group is the normal shape of a home directory and flagging it
+    # would bury the real finding in noise, which is its own failure mode.
+    case "$_pm" in
+      *t|*T) ;;
+      d???????w?)
+        echo "[FAIL] $_p is $_pm: world-writable and not sticky"
+        _bad=1 ;;
+    esac
+    [ "$_p" = "/" ] && break
+    _p=$(dirname "$_p")
+  done
+  [ "$_bad" = 0 ]
+}
+
 usage() {
   echo "usage: sh setup.sh {install | check | uninstall}" >&2
   exit 1
@@ -230,6 +275,8 @@ do_check() {
 $(each_bin)
 EOF
   [ "$_n" -gt 0 ] || { echo "[FAIL] no executables in $HERE/bin"; _rc=1; }
+  [ "$COPY" = 1 ] && { _audit_path "$BIN/$(_first_bin)" || _rc=1
+                       _audit_path "$LIB/qmkripple.py" || _rc=1; }
   # In copy mode the tree is DELIBERATELY off PATH: only the integrator's
   # single /usr/local/bin symlink is published, so warning that $BIN is absent
   # from PATH would be advice to create the very double the standard bans.

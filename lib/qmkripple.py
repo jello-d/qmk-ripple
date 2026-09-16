@@ -129,6 +129,14 @@ class NotFound(Exception):
     panel-power, which must treat 'no keyboard' as nothing to do)."""
 
 
+# Sysfs roots, overridable ONLY so the tests can point them at a fixture tree.
+# Device SELECTION is the most destructive thing in this package -- picking the
+# wrong block device writes firmware onto it -- and it was untestable while
+# these were literals. Nothing but the tests should ever set them.
+SYS_BLOCK = os.environ.get("QMKRIPPLE_SYS_BLOCK", "/sys/block")
+SYS_HIDRAW = os.environ.get("QMKRIPPLE_SYS_HIDRAW", "/sys/class/hidraw")
+
+
 # --- sysfs helpers -----------------------------------------------------------
 def uevent(path):
     """Parse a sysfs uevent file into a dict (missing file -> empty)."""
@@ -150,7 +158,7 @@ def find_node(vid=VID, pid=PID):
     usage_page as 0 and so cannot pick the right interface.
     """
     want = "%04X:%08X:%08X" % (0x0003, vid, pid)  # bus:vid:pid in HID_ID
-    for sysdir in sorted(glob.glob("/sys/class/hidraw/hidraw*")):
+    for sysdir in sorted(glob.glob(SYS_HIDRAW + "/hidraw*")):
         dev = os.path.join(sysdir, "device")
         hid_id = uevent(os.path.join(dev, "uevent")).get("HID_ID", "").upper()
         if hid_id != want:
@@ -446,7 +454,7 @@ def find_uf2_dev():
     a guess at the device letter, so no other removable device -- a card
     reader, a stick, the system disk -- can be mistaken for the keyboard.
     """
-    for blk in sorted(glob.glob("/sys/block/sd*")):
+    for blk in sorted(glob.glob(SYS_BLOCK + "/sd*")):
         try:
             with open(os.path.join(blk, "device", "model")) as f:
                 model = f.read().strip()

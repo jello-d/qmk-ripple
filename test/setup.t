@@ -79,6 +79,28 @@ run check PREFIX="$Y" QMKRIPPLE_INSTALL_COPY=1 >/dev/null 2>&1 \
   && fail "system mode: a missing lib passed check"
 run install PREFIX="$Y" QMKRIPPLE_INSTALL_COPY=1 >/dev/null   # heal
 
+# --- the path audit: a root-executed file needs a safe path, not just a safe
+# --- file. /usr/local sat owned by the login user while everything inside it
+# --- was root, so the owner could have swapped the directory and changed what
+# --- the greeter runs. Every check was green, because each looked at a file.
+W=$T/wide/pfx
+mkdir -p "$W"
+chmod 777 "$T/wide"
+run install PREFIX="$W" QMKRIPPLE_INSTALL_COPY=1 >/dev/null
+run check PREFIX="$W" QMKRIPPLE_INSTALL_COPY=1 >/dev/null 2>&1 \
+  && fail "a world-writable, non-sticky ancestor passed the path audit"
+run check PREFIX="$W" QMKRIPPLE_INSTALL_COPY=1 2>&1 \
+  | grep -q "world-writable" \
+  || fail "the audit failed without naming the world-writable directory"
+chmod 755 "$T/wide"
+run check PREFIX="$W" QMKRIPPLE_INSTALL_COPY=1 >/dev/null 2>&1 \
+  || fail "the audit still fails after the ancestor was tightened"
+
+# NOT EXERCISED HERE: the owner-mismatch arm (an ancestor owned by another
+# non-root user), which is the /usr/local case itself. Constructing it needs
+# root to chown, so this suite cannot reach it -- said plainly rather than
+# left to look covered.
+
 # --- the shadow guard ------------------------------------------------------
 # Publish the shared command, then a user install must NOT make a second copy.
 ln -s "$Y/bin/qmk-ripple" "$P/qmk-ripple"

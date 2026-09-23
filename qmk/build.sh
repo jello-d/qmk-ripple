@@ -13,7 +13,20 @@ SRC=$QMK/keyboards/$BOARD
   || { echo "no default keymap under $SRC" >&2; exit 1; }
 DST=$SRC/keymaps/$KM
 mkdir -p "$DST"
-cp "$SRC/keymaps/default/keymap.c" "$DST/keymap.c"
+# KEYMAP: ours if the repo carries one, else the board's default.
+#
+# This line used to copy the board default UNCONDITIONALLY, which meant any
+# mapping change was silently reverted by the next build -- the assembled
+# keymap was overwritten before compiling and nothing said so. Preferring the
+# repo's file makes a keymap edit survive, while a package with no keymap of
+# its own still tracks the board.
+if [ -f "$HERE/keymap/keymap.c" ]; then
+  cp "$HERE/keymap/keymap.c" "$DST/keymap.c"
+  echo "keymap: $HERE/keymap/keymap.c (repo)"
+else
+  cp "$SRC/keymaps/default/keymap.c" "$DST/keymap.c"
+  echo "keymap: board default ($BOARD)"
+fi
 cp "$HERE/rgb_matrix_user.inc"     "$DST/rgb_matrix_user.inc"
 cp "$HERE/hostctl.c"               "$DST/hostctl.c"
 cp "$HERE/ripple_config.h"         "$DST/ripple_config.h"

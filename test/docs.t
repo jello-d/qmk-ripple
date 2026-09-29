@@ -6,7 +6,7 @@
 # Every one of those is now in test/conventions.t, the SHARED house-conventions
 # test vendored into each repo from ~/src/shared-notes/_conventions.t, so
 # keeping them here would be two implementations of one rule free to disagree
-# -- which is the shape this repo keeps finding and fixing.
+# which is the shape this repo keeps finding and fixing.
 #
 # ONE rule was genuinely local and had no home in the shared test, so it stays,
 # and the file is renamed to say what it now does. Found drifted BY HAND, which

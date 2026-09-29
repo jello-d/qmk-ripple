@@ -7,7 +7,7 @@
 # firmware's side of the protocol only answers on a real board, so the tests
 # below pin the host against the C SOURCE (offsets, ids, defaults) rather than
 # against a running device. Those two can still disagree with reality together
-# if the firmware is not flashed -- `qmk-ripple-admin selftest` is the hardware
+# if the firmware is not flashed; `qmk-ripple-admin selftest` is the hardware
 # half and is not run from here.
 #
 # SKIPS ARE COUNTED AND PRINTED, because a green run that quietly omitted half

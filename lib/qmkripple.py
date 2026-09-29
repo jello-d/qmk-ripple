@@ -55,14 +55,14 @@ RULE_TEXT = """\
 # desktop case and follows whoever logs in. But it is exactly wrong BEFORE a
 # graphical login: at the greeter, seat0 belongs to _greetd, so the node is
 # _greetd's and anything running as the desktop user gets EACCES. Not
-# hypothetical -- the sleep/suspend hooks run from system units as the desktop
+# hypothetical: the sleep/suspend hooks run from system units as the desktop
 # user, so a suspend from the greeter could not turn the keyboard off at all.
 #
 # GROUP+MODE is seat-independent, so the owning user can drive the board with
 # no session at all. A USB keyboard is exactly a "pluggable device".
 #
 # Scope: this lets any {g} process talk to THIS vid:pid, which includes the
-# bootloader jump -- the same trust boundary {g} already implies on a
+# bootloader jump, the same trust boundary {g} already implies on a
 # single-user workstation.
 KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{{idVendor}}=="{vid:04x}", \
 ATTRS{{idProduct}}=="{pid:04x}", TAG+="uaccess", GROUP="{g}", MODE="0660"
@@ -130,8 +130,8 @@ class NotFound(Exception):
 
 
 # Sysfs roots, overridable ONLY so the tests can point them at a fixture tree.
-# Device SELECTION is the most destructive thing in this package -- picking the
-# wrong block device writes firmware onto it -- and it was untestable while
+# Device SELECTION is the most destructive thing in this package (picking the
+# wrong block device writes firmware onto it), and it was untestable while
 # these were literals. Nothing but the tests should ever set them.
 SYS_BLOCK = os.environ.get("QMKRIPPLE_SYS_BLOCK", "/sys/block")
 SYS_HIDRAW = os.environ.get("QMKRIPPLE_SYS_HIDRAW", "/sys/class/hidraw")
@@ -245,7 +245,7 @@ def send(cmd, vid=VID, pid=PID):
 # --- the namespaced v2 protocol ----------------------------------------------
 # Every v2 message is [0x52][subcmd][payload]. 0x52 is undefined in VIA's
 # command space, so one of these aimed at a VIA board hits its id_unhandled
-# branch and does nothing -- unlike the flat legacy bytes, where our 0x03 is
+# branch and does nothing, unlike the flat legacy bytes, where our 0x03 is
 # VIA's id_set_keyboard_value, a WRITE. That is also what makes IDENTIFY
 # trustworthy: only this firmware answers with the magic.
 PREFIX = 0x52

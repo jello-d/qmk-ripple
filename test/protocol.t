@@ -5,8 +5,8 @@
 # firmware read a SET's argument from REQ_VALUE+1, so every value arrived
 # shifted one byte: `set radius 40` stored 0, `set hi ff0066` stored 00ff00,
 # and `set radius 999` was ACCEPTED as 3 because the shifted value landed back
-# inside the range. Nothing caught it -- identify passed, get passed, `show`
-# rendered a clean table, `check` went all-green -- because every one of those
+# inside the range. Nothing caught it: identify passed, get passed, `show`
+# rendered a clean table, `check` went all-green, because every one of those
 # asked the firmware to describe itself and it answered consistently wrong.
 #
 # Two copies of one fact cannot be checked by asking one of them. So this pins

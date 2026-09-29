@@ -127,7 +127,7 @@ def main():
         elif a.cmd == "show":
             return do_show(vid, pid)
         elif a.cmd == "status":
-            # LIVE state, read from the board -- not what we last asked for.
+            # LIVE state, read from the board, not what we last asked for.
             # off/on are fire-and-forget writes, so "did it actually take?" is
             # unanswerable without this.
             info = qr.status(vid, pid)

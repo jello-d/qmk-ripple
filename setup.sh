@@ -1,5 +1,5 @@
 #!/bin/sh
-# setup.sh -- put the qmk-ripple commands on PATH. No provisioner required.
+# setup.sh: put the qmk-ripple commands on PATH. No provisioner required.
 #
 #   sh setup.sh install     symlink bin/* into ~/.local/bin (idempotent)
 #   sh setup.sh check       verify those links ([OK]/[FAIL] + exit code)
@@ -24,7 +24,7 @@
 # cannot follow. That is not hypothetical: with greeter coverage on, the
 # keyboard hook was wired into /etc/vigilance/hooks pointing at ~/bin, the
 # greeter could not traverse the home, and the screen blanked while the
-# keyboard stayed lit -- wired up cleanly, doing nothing.
+# keyboard stayed lit, wired up cleanly, doing nothing.
 #
 # In copy mode lib/ is copied too, next to bin/ under the same PREFIX, so the
 # same self-locating logic (realpath -> ../lib) finds it there.
@@ -32,7 +32,7 @@
 # NON-PRIVILEGED on purpose: this never calls sudo, because the provisioner's
 # package mode does not. A system prefix is written by the CALLER running this
 # under sudo (which is how tackup does it for vigilance). The one privileged
-# step in the package -- the raw-HID udev rule -- stays behind
+# step in the package (the raw-HID udev rule) stays behind
 # `qmk-ripple-admin install`, reported as a next step rather than run here.
 set -eu
 
@@ -100,7 +100,7 @@ _audit_path() {
       _bad=1
     fi
     # WORLD-writable and not sticky: anyone can replace entries here. The
-    # GROUP bit is deliberately not checked -- drwxrwxr-x under a private
+    # GROUP bit is deliberately not checked, because drwxrwxr-x under a private
     # per-user group is the normal shape of a home directory and flagging it
     # would bury the real finding in noise, which is its own failure mode.
     case "$_pm" in
@@ -143,7 +143,7 @@ each_bin() {
 #
 # THE CHOWN IS NOT OPTIONAL, and is why this is a function rather than a bare
 # cp. Vigilance hit it on a real box: a root install that preserves the
-# source's ownership leaves a system binary owned by the LOGIN USER -- a file
+# source's ownership leaves a system binary owned by the LOGIN USER, a file
 # the greeter executes that an unprivileged account can rewrite at will. Plain
 # cp does not preserve ownership the way `cp -a` does, but being explicit costs
 # nothing and the failure is privilege escalation, so assert it rather than
@@ -264,7 +264,7 @@ do_check() {
       _rc=1
     elif ! "$_l" --help >/dev/null 2>&1; then
       # Present and correctly linked, but does not RUN. Catches a broken
-      # layout, a bad interpreter, a syntax error -- all of which a caller
+      # layout, a bad interpreter, a syntax error, all of which a caller
       # that ignores exit codes would swallow.
       echo "[FAIL] $_l is linked but does not run (try: $_l --help)"
       _rc=1
@@ -280,7 +280,7 @@ EOF
   # In copy mode the tree is DELIBERATELY off PATH: only the integrator's
   # single /usr/local/bin symlink is published, so warning that $BIN is absent
   # from PATH would be advice to create the very double the standard bans.
-  # Invert it -- the system tree being ON PATH is the thing worth flagging.
+  # Invert it: the system tree being ON PATH is the thing worth flagging.
   case ":$PATH:" in
     *":$BIN:"*)
       if [ "$COPY" = 1 ]; then

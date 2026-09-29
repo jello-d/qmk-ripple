@@ -25,7 +25,7 @@ harness_init() {   # <name>
 }
 # A test must not modify the checkout. It is easy to breach by accident: an
 # install fixture leaves symlinks POINTING AT the repo, and a later `>` through
-# one of those edits the real file. That happened -- test/setup.t truncated
+# one of those edits the real file. That happened: test/setup.t truncated
 # bin/qmk-ripple-admin to a single line on its first run. So snapshot the
 # working tree at init and refuse to pass if it moved.
 _tree_state() {

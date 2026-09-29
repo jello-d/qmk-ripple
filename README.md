@@ -4,7 +4,7 @@ A custom QMK RGB-matrix keyboard effect plus its host control, built for the
 Drop CSTM65 but portable to any QMK board with a per-key RGB matrix.
 
 The **ripple** effect: a steady solid base colour (blue) with a reactive
-water-ripple highlight on keypress -- the pressed key snaps to a second colour
+water-ripple highlight on keypress: the pressed key snaps to a second colour
 (purple) at full brightness, and a delayed, fainter ring blooms on the
 surrounding keys, all blending back to the base as it fades. Brightness stays
 constant; the fade is a colour blend, not a dim.
@@ -45,7 +45,7 @@ teeth (see the collision table below), so the command that runs on every
 screen blank must not be able to send it.
 
 `off`/`on` are write-only and never wait for a reply, which is what keeps them
-cheap enough for the blank path -- but it also means they cannot tell you
+cheap enough for the blank path, but it also means they cannot tell you
 whether they worked. `status` reads the LIVE matrix state back off the board,
 so "did it take?" is answerable. `--expect on|off` turns that into an exit
 code, which is what a verify hook branches on:
@@ -62,14 +62,15 @@ will eventually report a failure as a no-op.
 | 0 | ok, including a match from `--expect` |
 | 1 | an error, or `--expect` did not match (a FAULT) |
 | 2 | no keyboard on the bus (benign; a caller may ignore it) |
-| 3 | the firmware cannot answer (a GAP -- could not check, not a failure) |
+| 3 | the firmware cannot answer (a GAP: could not check, not a failure) |
 | 64 | usage error (`EX_USAGE`) |
 
 64 exists because argparse's default is 2, which collided with "no keyboard":
 an older deployed binary rejecting a new subcommand looked exactly like an
 absent board, and a verify hook read it as benign and passed. Distinguishing a
-gap (3, 64) from a fault (1) is the point -- reporting "I could not check" as a
-failure trains people to ignore alerts, and the reverse hides real breakage.
+gap (3, 64) from a fault (1) is the point, because reporting "I could not
+check" as a failure trains people to ignore alerts, and the reverse hides
+real breakage.
 
 `bin/qmk-ripple-admin` is the rare half, allowed to be slow, chatty and
 privileged:
@@ -131,7 +132,7 @@ defaults to RAM, and persisting that is another deliberate `save`.
 
 Ranges are reported BY the firmware with every `get`, so the host never
 carries a second copy that could drift. An out-of-range value is refused, not
-silently clamped -- a quietly adjusted value would be a lie about what was
+silently clamped, because a quietly adjusted value would be a lie about what was
 asked for.
 
 ## First flash (bootstrap)
@@ -170,7 +171,7 @@ there. On an unconfirmed board, use `qmk-ripple-bootstrap`.
 Everything added after those three bytes is namespaced behind a `0x52` prefix,
 which VIA does not define: a v2 command aimed at a VIA board lands in its
 `id_unhandled` branch and does nothing. That is also what makes identification
-trustworthy -- only this firmware answers `0x52 0x00` with the magic `RPL`, so
+trustworthy: only this firmware answers `0x52 0x00` with the magic `RPL`, so
 `qmk-ripple-admin check` can positively confirm the firmware instead of
 guessing from the presence of an interface:
 
@@ -199,13 +200,13 @@ mounting it the instant it appears races udisks. Both handle that.
 
 Dependency-free 24-bit-colour terminal render against the real LED layout, so
 the look is tuned with zero flashing. `ripple_intensity()` is the reference the
-firmware effect ports verbatim -- tune here, then mirror the constants.
+firmware effect ports verbatim, so tune here then mirror the constants.
 
     python3 sim/ripple            # demo: auto-typing (Ctrl-C quits)
     python3 sim/ripple --keys     # interactive; Tab blanks (screen-off)
 
 The flags ARE the parameter names, in the units `qmk-ripple show` prints, and
-the defaults are read from `qmk/ripple_config.h` rather than copied -- so the
+the defaults are read from `qmk/ripple_config.h` rather than copied, so the
 simulator and the firmware cannot disagree about what "default" means.
 
     python3 sim/ripple --from-board    start from what the board runs now
@@ -281,7 +282,7 @@ say so loudly if it is missing.
 
 Anything calling this package needs a PATH that includes `~/.local/bin`. A
 caller exec'd from a minimal environment (a compositor's lock hook, say) may
-not have it, and the failure is silent -- `command -v qmk-ripple` simply finds
+not have it, and the failure is silent: `command -v qmk-ripple` simply finds
 nothing and the blank skips the keyboard.
 
 ## Development
@@ -316,7 +317,7 @@ relight, and needs the keyboard attached.
 
 The harness refuses to pass a test that MODIFIED THE CHECKOUT. An install
 fixture leaves symlinks pointing at the repo, and a later write through one
-edits the real file -- which happened: test/setup.t truncated
+edits the real file, which happened: test/setup.t truncated
 bin/qmk-ripple-admin to a single line on its first run.
 
 An 80-column limit is also enforced by a tracked pre-commit hook (style.t

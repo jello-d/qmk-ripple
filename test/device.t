@@ -9,7 +9,7 @@
 #
 # find_node is the same shape one layer over: 0xFF60 is the SHARED QMK/VIA
 # usage page, so picking by vid:pid alone would hand control bytes to whatever
-# else answered -- and ripple's 0x03 is a WRITE on a VIA board.
+# else answered, and ripple's 0x03 is a WRITE on a VIA board.
 set -eu
 . "$(dirname "$0")/harness_lib"
 harness_init device

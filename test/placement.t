@@ -9,7 +9,7 @@
 # exact layout and runs through the link.
 #
 # THE UDEV RULE needs BOTH grants. uaccess alone is an ACL for the ACTIVE SEAT,
-# which at the greeter is the greeter's own account -- so a hook running as the
+# which at the greeter is the greeter's own account, so a hook running as the
 # login user gets EACCES precisely when the keyboard should go dark.
 set -eu
 . "$(dirname "$0")/harness_lib"

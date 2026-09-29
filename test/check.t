@@ -4,7 +4,7 @@
 # WHY THIS EXISTS. `check` is the one command a PROVISIONER branches on, so its
 # exit code is a contract: non-zero means drift a human must fix. Nothing in the
 # suite reached it. The whole function needed a board, so every branch was only
-# ever exercised by hand on a machine that happened to be healthy -- which is
+# ever exercised by hand on a machine that happened to be healthy, which is
 # the branch that cannot regress. The FAIL paths, the ones that matter, were
 # untested.
 #

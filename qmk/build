@@ -1,5 +1,5 @@
 #!/bin/sh
-# qmk/build -- assemble the ripple keymap into a (vial-)qmk tree and compile it.
+# qmk/build: assemble the ripple keymap into a (vial-)qmk tree and compile it.
 # Reuses the board's stock keymap.c and layers our effect + host-control on
 # top, so the effect stays board-agnostic and the keymap is generated.
 #   VIAL_QMK=~/src/vial-qmk sh qmk/build drop/cstm65 [keymap-name]
@@ -16,7 +16,7 @@ mkdir -p "$DST"
 # KEYMAP: ours if the repo carries one, else the board's default.
 #
 # This line used to copy the board default UNCONDITIONALLY, which meant any
-# mapping change was silently reverted by the next build -- the assembled
+# mapping change was silently reverted by the next build, because the assembled
 # keymap was overwritten before compiling and nothing said so. Preferring the
 # repo's file makes a keymap edit survive, while a package with no keymap of
 # its own still tracks the board.

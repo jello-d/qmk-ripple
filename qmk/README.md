@@ -26,7 +26,8 @@ For a keymap dir `<board>/keymaps/ripple/` (base it on the board's `default`):
     qmk-ripple-admin flash              # jump, mount, copy, verify
 
 Under the hood the board mounts as a UF2 drive and the `.uf2` is copied onto
-it. To revert, flash the stock/default `.uf2` the same way -- fully reversible.
+it. To revert, flash the stock/default `.uf2` the same way, so it is fully
+reversible.
 
 **Use `qmk-ripple-admin flash` rather than doing it by hand.** "Drag-and-drop"
 assumes a desktop that automounts the drive and that the drive is ready the
@@ -50,7 +51,7 @@ moment it appears. Neither held here, and each cost a failed flash:
 
 A failed flash never writes anything, so the old firmware is always intact.
 `flash` detects a board already sitting in its bootloader and skips the jump,
-so the recovery from any failure is to re-run it -- no power cycle needed.
+so the recovery from any failure is to re-run it, with no power cycle needed.
 
 ### First-flash notes (learned the hard way)
 
@@ -67,7 +68,7 @@ so the recovery from any failure is to re-run it -- no power cycle needed.
 
 - **Two bootloader modes.** Double-tap reset should give the tinyuf2 USB *drive*
   (drag-and-drop). But a BOOT0-style entry lands in the STM32 ROM **DFU**
-  bootloader (`0483:df11`, no drive) instead. DFU is fine to flash from -- the
+  bootloader (`0483:df11`, no drive) instead. DFU is fine to flash from, and the
   app is confined to `0x08004000+`, above tinyuf2 (`0x08000000-0x08003FFF`), so
   flashing only the app region preserves the bootloader (never a brick):
 

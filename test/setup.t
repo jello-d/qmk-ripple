@@ -4,7 +4,7 @@
 # setup.sh grew a mode at a time and each mode broke a check written for the
 # other one, twice: copy mode reported the two user-only commands as "[FAIL]
 # missing" from a system tree they are deliberately not in, and copy mode also
-# warned that the system prefix was "not on PATH" -- advice which, followed,
+# warned that the system prefix was "not on PATH", advice which, followed,
 # creates the double the same script refuses to create. Both are pinned here.
 #
 # Nothing outside T is read for state or written at all: SHARED_BIN is
@@ -122,7 +122,7 @@ rm -f "$U/bin/qmk-ripple"
 
 # --- uninstall removes ours and leaves a stranger alone --------------------
 # rm FIRST. That path is currently our symlink into the checkout, and writing
-# through it would edit the repo -- which is exactly what this line did on its
+# through it would edit the repo, which is exactly what this line did on its
 # first run, truncating bin/qmk-ripple-admin to one line.
 rm -f "$U/bin/qmk-ripple-admin"
 printf '#!/bin/sh\n' > "$U/bin/qmk-ripple-admin"   # someone else's, same name

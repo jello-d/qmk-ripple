@@ -13,7 +13,7 @@
 # the host's byte offsets and subcommand ids against the C SOURCE, which is the
 # other copy. It runs with no hardware: the firmware need not even be flashed.
 set -eu
-. "$(dirname "$0")/lib.sh"
+. "$(dirname "$0")/harness_lib"
 harness_init protocol
 
 HOSTCTL=$HERE/qmk/hostctl.c

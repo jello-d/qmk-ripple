@@ -11,7 +11,7 @@
 # usage page, so picking by vid:pid alone would hand control bytes to whatever
 # else answered -- and ripple's 0x03 is a WRITE on a VIA board.
 set -eu
-. "$(dirname "$0")/lib.sh"
+. "$(dirname "$0")/harness_lib"
 harness_init device
 
 # Point the lib at the fixture trees. Exported, not passed, because each py

@@ -1,8 +1,8 @@
 #!/bin/sh
-# build.sh -- assemble the ripple keymap into a (vial-)qmk tree and compile it.
+# qmk/build -- assemble the ripple keymap into a (vial-)qmk tree and compile it.
 # Reuses the board's stock keymap.c and layers our effect + host-control on
 # top, so the effect stays board-agnostic and the keymap is generated.
-#   VIAL_QMK=~/src/vial-qmk sh qmk/build.sh drop/cstm65 [keymap-name]
+#   VIAL_QMK=~/src/vial-qmk sh qmk/build drop/cstm65 [keymap-name]
 set -eu
 QMK=${VIAL_QMK:-$HOME/src/vial-qmk}
 BOARD=${1:?board path, e.g. drop/cstm65}

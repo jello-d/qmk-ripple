@@ -2,7 +2,7 @@
 # test/firmware.t - the C-side invariants that are cheap to check on the host.
 #
 # A full QMK build needs a cross toolchain and a vendored qmk tree, so it is
-# not run here (qmk/build.sh is that path). These are the facts that do NOT
+# not run here (qmk/build is that path). These are the facts that do NOT
 # need a firmware build and that fail EXPENSIVELY if wrong:
 #
 #   - the config struct must fit the EEPROM block it is saved into. Too big and
@@ -17,7 +17,7 @@
 #     notify with the state UNCHANGED, so a naive "relight when configured"
 #     undoes each blank within milliseconds.
 set -eu
-. "$(dirname "$0")/lib.sh"
+. "$(dirname "$0")/harness_lib"
 harness_init firmware
 
 SRC=$HERE/qmk/hostctl.c

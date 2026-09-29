@@ -3,10 +3,10 @@
 // travels with this file; the rest of this package is Apache-2.0.
 // SPDX-License-Identifier: GPL-2.0-or-later
 //
-// WHY THIS FILE EXISTS. qmk/build.sh used to copy the board's
+// WHY THIS FILE EXISTS. qmk/build used to copy the board's
 // default keymap over the assembled one on EVERY build, so any
 // mapping change was silently reverted the next time the firmware
-// was rebuilt. build.sh now prefers this file when it is present.
+// was rebuilt. qmk/build now prefers this file when it is present.
 //
 // It is the board default with exactly TWO deliberate changes, both
 // on layer 1, both about reaching a tilde without a three-key

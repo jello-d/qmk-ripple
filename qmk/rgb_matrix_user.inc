@@ -4,7 +4,7 @@
 // select RGB_MATRIX_CUSTOM_RIPPLE (see qmk/README.md for the wiring).
 //
 // The intensity math is a verbatim port of ripple_intensity() in
-// sim/ripple.py -- tune in the simulator, then mirror the constants here.
+// sim/ripple -- tune in the simulator, then mirror the constants here.
 // Coordinates are QMK's shared LED grid (0..224 x 0..64), the same space the
 // simulator uses, so distances and the look carry over 1:1.
 
@@ -23,7 +23,7 @@ RGB_MATRIX_EFFECT(RIPPLE)
 // colour-BLEND amount [0,255] for a key `dist` units from a hit `age` ms old:
 // a distance PEAK per key-step (direct 1.0, adjacent = peak, 2 keys = peak^2)
 // times a time DECAY back to base over `fade`. Brightness is held constant
-// below. == ripple_intensity() in sim/ripple.py.
+// below. == ripple_intensity() in sim/ripple.
 static uint8_t ripple_intensity(uint16_t dist, uint16_t age) {
     if (dist > ripple_config.radius) return 0;
     uint16_t arrival = dist * ripple_config.spread;

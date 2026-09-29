@@ -3,7 +3,7 @@
 `rgb_matrix_user.inc` is a custom `RGB_MATRIX_CUSTOM_USER` effect (`RIPPLE`): a
 solid base colour with a reactive water-ripple highlight on keypress, rendered
 on real hardware. Its `ripple_intensity()` is a verbatim port of
-`sim/ripple.py`.
+`sim/ripple`.
 
 ## Wiring it into a keymap
 
@@ -22,7 +22,7 @@ For a keymap dir `<board>/keymaps/ripple/` (base it on the board's `default`):
 
 ## Build + flash (CSTM65: STM32F303, tinyuf2)
 
-    qmk-ripple-admin build              # wraps build.sh
+    qmk-ripple-admin build              # wraps qmk/build
     qmk-ripple-admin flash              # jump, mount, copy, verify
 
 Under the hood the board mounts as a UF2 drive and the `.uf2` is copied onto

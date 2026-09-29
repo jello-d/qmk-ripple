@@ -12,7 +12,7 @@
 # which at the greeter is the greeter's own account -- so a hook running as the
 # login user gets EACCES precisely when the keyboard should go dark.
 set -eu
-. "$(dirname "$0")/lib.sh"
+. "$(dirname "$0")/harness_lib"
 harness_init placement
 
 # --- the /opt + /usr/local/bin shape ---------------------------------------

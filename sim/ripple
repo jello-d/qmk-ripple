@@ -15,13 +15,13 @@ Model (matches QMK's rgb_matrix reactive framework):
     ripple colour back into the base over `fade` ms, never a dimming.
 
 Usage:
-  ripple.py                 demo: auto-typing animation (Ctrl-C to quit)
-  ripple.py --keys          interactive: keys drive it; Tab blanks/restores the
+  ripple                 demo: auto-typing animation (Ctrl-C to quit)
+  ripple --keys          interactive: keys drive it; Tab blanks/restores the
                             backlight (the screen-off preview). Ctrl-C quits.
-  ripple.py --once          render one frame with a sample hit, then exit
-  ripple.py --frames N      render N frames headless (no cursor tricks), exit
-  ripple.py --from-board    start from what the KEYBOARD is running right now
-  ripple.py --emit-set      print the `qmk-ripple set` lines for these values
+  ripple --once          render one frame with a sample hit, then exit
+  ripple --frames N      render N frames headless (no cursor tricks), exit
+  ripple --from-board    start from what the KEYBOARD is running right now
+  ripple --emit-set      print the `qmk-ripple set` lines for these values
 
 In step with the rest of the package:
   - the flag names are the parameter names (`--radius` <-> `qmk-ripple set
@@ -45,7 +45,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(HERE), "lib"))
 try:
     import qmkripple as qr
 except ImportError:
-    sys.stderr.write("ripple.py: cannot import lib/qmkripple.py -- sim/ and "
+    sys.stderr.write("ripple: cannot import lib/qmkripple.py -- sim/ and "
                      "lib/ must stay siblings in the checkout.\n")
     sys.exit(1)
 
@@ -260,7 +260,7 @@ def main():
             d.update(qr.board_values())
             src = "the keyboard"
     except (qr.Error, qr.NotFound) as e:
-        sys.stderr.write("ripple.py: %s\n" % e)
+        sys.stderr.write("ripple: %s\n" % e)
         return 1
 
     ap = argparse.ArgumentParser(

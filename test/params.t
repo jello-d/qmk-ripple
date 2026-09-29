@@ -5,7 +5,7 @@
 #   qmk/hostctl.c         ripple_params[]        id -> min/max, and the
 #                                                get/set switch arms
 #   lib/qmkripple.py      PARAMS + PARAM_HELP    name <-> id, and the codec
-#   sim/ripple.py         --flags                the same knobs, offline
+#   sim/ripple            --flags                the same knobs, offline
 #
 # Adding a tunable means touching all four, and forgetting one fails QUIETLY in
 # a different way each time: no range entry makes GET answer EBADID for a
@@ -13,7 +13,7 @@
 # back the old value; no host entry makes it unreachable; no sim flag makes the
 # simulator and the board disagree about the effect.
 set -eu
-. "$(dirname "$0")/lib.sh"
+. "$(dirname "$0")/harness_lib"
 harness_init params
 
 py - "$HERE" <<'EOF' || fail "the parameter table has drifted between copies"
@@ -23,7 +23,7 @@ import qmkripple as qr
 root = sys.argv[1]
 hdr = open(root + "/qmk/ripple_config.h").read()
 src = open(root + "/qmk/hostctl.c").read()
-sim = open(root + "/sim/ripple.py").read()
+sim = open(root + "/sim/ripple").read()
 
 # --- canonical: the enum in the header -------------------------------------
 enum_body = re.search(r"enum ripple_param \{(.*?)\};", hdr, re.S)
@@ -81,7 +81,7 @@ for name, _i, codec in qr.PARAMS:
 sim_flags = set(re.findall(r'add_argument\("--([a-z0-9-]+)"', sim))
 for name, _i, _c in qr.PARAMS:
     if name not in sim_flags:
-        bad.append("sim/ripple.py has no --%s flag: the simulator and the "
+        bad.append("sim/ripple has no --%s flag: the simulator and the "
                    "board would disagree about that knob" % name)
 
 if bad:

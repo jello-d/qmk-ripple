@@ -10,7 +10,7 @@
 # Nothing outside T is read for state or written at all: SHARED_BIN is
 # redirected into the scratch dir, so the real /usr/local is never consulted.
 set -eu
-. "$(dirname "$0")/lib.sh"
+. "$(dirname "$0")/harness_lib"
 harness_init setup
 
 S=$HERE/setup.sh

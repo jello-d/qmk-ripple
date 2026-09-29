@@ -8,7 +8,7 @@
 # header instead, so this pins the parser against the header it parses and
 # against the x100 conversions the firmware does to the same values.
 set -eu
-. "$(dirname "$0")/lib.sh"
+. "$(dirname "$0")/harness_lib"
 harness_init defaults
 
 py - "$HERE" <<'EOF' || fail "defaults or codecs have drifted"

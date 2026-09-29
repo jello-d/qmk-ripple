@@ -4,7 +4,7 @@
 #
 # Two failures this pins, both of which already happened:
 #
-#  1. build.sh copied the board's default keymap over the assembled one on
+#  1. qmk/build copied the board's default keymap over the assembled one on
 #     EVERY build, so a mapping change was reverted by the next rebuild with
 #     nothing said. Any keymap work would have looked like it "didn't take".
 #  2. The QMK Configurator round-trip wrapped four keycodes it did not
@@ -16,18 +16,18 @@
 # indices listed in CHANGES, and nowhere else. That also makes an upstream
 # keymap revision visible instead of silently diverging.
 set -eu
-. "$(dirname "$0")/lib.sh"
+. "$(dirname "$0")/harness_lib"
 harness_init keymap
 
 OURS=$HERE/qmk/keymap/keymap.c
-[ -f "$OURS" ] || fail "no qmk/keymap/keymap.c; build.sh would fall back to the
+[ -f "$OURS" ] || fail "no qmk/keymap/keymap.c; qmk/build would fall back to the
 board default and any mapping change would be lost"
 
 QMK=${VIAL_QMK:-$HOME/src/vial-qmk}
 DEF=$QMK/keyboards/drop/cstm65/keymaps/default/keymap.c
 
-# --- build.sh must PREFER ours, with no qmk tree involved ------------------
-# Stub `qmk` so build.sh's final `exec qmk compile` cannot run, and give it a
+# --- qmk/build must PREFER ours, with no qmk tree involved ------------------
+# Stub `qmk` so qmk/build's final `exec qmk compile` cannot run, and give it a
 # fake board tree whose default keymap is recognisable. Then assert which file
 # landed.
 mkdir -p "$T/bin" "$T/qmk/keyboards/drop/cstm65/keymaps/default"
@@ -36,11 +36,11 @@ chmod +x "$T/bin/qmk"
 printf '// THE BOARD DEFAULT, NOT OURS\n' \
   > "$T/qmk/keyboards/drop/cstm65/keymaps/default/keymap.c"
 env PATH="$T/bin:$PATH" VIAL_QMK="$T/qmk" \
-  sh "$HERE/qmk/build.sh" drop/cstm65 ripple-test >/dev/null 2>&1 || true
+  sh "$HERE/qmk/build" drop/cstm65 ripple-test >/dev/null 2>&1 || true
 _landed=$T/qmk/keyboards/drop/cstm65/keymaps/ripple-test/keymap.c
-[ -f "$_landed" ] || fail "build.sh assembled no keymap at all"
+[ -f "$_landed" ] || fail "qmk/build assembled no keymap at all"
 if grep -q "THE BOARD DEFAULT, NOT OURS" "$_landed"; then
-  fail "build.sh overwrote the assembled keymap with the board default: a
+  fail "qmk/build overwrote the assembled keymap with the board default: a
 mapping change would be silently reverted on the next build"
 fi
 cmp -s "$_landed" "$OURS" \
@@ -49,11 +49,11 @@ cmp -s "$_landed" "$OURS" \
 # --- and it still falls back when a package carries no keymap -------------
 mv "$OURS" "$T/ours.c"
 env PATH="$T/bin:$PATH" VIAL_QMK="$T/qmk" \
-  sh "$HERE/qmk/build.sh" drop/cstm65 ripple-fallback >/dev/null 2>&1 || true
+  sh "$HERE/qmk/build" drop/cstm65 ripple-fallback >/dev/null 2>&1 || true
 _fb=$T/qmk/keyboards/drop/cstm65/keymaps/ripple-fallback/keymap.c
 mv "$T/ours.c" "$OURS"
 grep -q "THE BOARD DEFAULT, NOT OURS" "$_fb" \
-  || fail "with no repo keymap, build.sh did not fall back to the board default"
+  || fail "with no repo keymap, qmk/build did not fall back to the default"
 
 # --- ours vs the REAL board default: only the intended changes ------------
 if [ ! -f "$DEF" ]; then

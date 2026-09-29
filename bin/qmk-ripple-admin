@@ -58,8 +58,8 @@ def say(msg=""):
 
 # --- build -------------------------------------------------------------------
 def do_build(board, keymap):
-    """Compile via qmk/build.sh, which assembles the keymap onto a qmk tree."""
-    script = os.path.join(qr.pkg_root(), "qmk", "build.sh")
+    """Compile via qmk/build, which assembles the keymap onto a qmk tree."""
+    script = os.path.join(qr.pkg_root(), "qmk", "build")
     if not os.path.exists(script):
         sys.stderr.write("qmk-ripple-admin: missing %s\n" % script)
         return 1
@@ -74,7 +74,7 @@ def do_build(board, keymap):
 
 
 def default_uf2(board, keymap):
-    """Where build.sh leaves the .uf2, or None if it is not there."""
+    """Where qmk/build leaves the .uf2, or None if it is not there."""
     qmk = os.environ.get("VIAL_QMK", os.path.expanduser("~/src/vial-qmk"))
     name = "%s_%s.uf2" % (board.replace("/", "_"), keymap)
     path = os.path.join(qmk, ".build", name)

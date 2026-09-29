@@ -14,7 +14,7 @@
 #
 # No hardware: every device path uses a vid:pid nothing answers.
 set -eu
-. "$(dirname "$0")/lib.sh"
+. "$(dirname "$0")/harness_lib"
 harness_init cli
 
 R=$HERE/bin/qmk-ripple

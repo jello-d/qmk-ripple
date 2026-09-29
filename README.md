@@ -183,33 +183,33 @@ distinguishable from a current one rather than being mistaken for it.
 
 `qmk/rgb_matrix_user.inc` is the custom `RGB_MATRIX_CUSTOM_USER` effect;
 `qmk/hostctl.c` adds the raw-HID commands and a red bootloader indicator.
-`qmk/build.sh` assembles a keymap onto a (vial-)qmk tree and compiles it. See
+`qmk/build` assembles a keymap onto a (vial-)qmk tree and compiles it. See
 `qmk/README.md` for wiring, build, and the flashing notes (DFU vs UF2, and the
 EE_CLR-after-first-flash gotcha).
 
     qmk-ripple-admin build              # or, directly:
-    VIAL_QMK=~/src/vial-qmk sh qmk/build.sh drop/cstm65 ripple
+    VIAL_QMK=~/src/vial-qmk sh qmk/build drop/cstm65 ripple
 
 Then `qmk-ripple-admin flash` (or `qmk-ripple-bootstrap` for a board that
 does not run this firmware yet). Prefer either over copying the `.uf2` by
 hand: the drive does not automount on a box with no automount daemon, and
 mounting it the instant it appears races udisks. Both handle that.
 
-## Simulator (`sim/ripple.py`)
+## Simulator (`sim/ripple`)
 
 Dependency-free 24-bit-colour terminal render against the real LED layout, so
 the look is tuned with zero flashing. `ripple_intensity()` is the reference the
 firmware effect ports verbatim -- tune here, then mirror the constants.
 
-    python3 sim/ripple.py            # demo: auto-typing (Ctrl-C quits)
-    python3 sim/ripple.py --keys     # interactive; Tab blanks (screen-off)
+    python3 sim/ripple            # demo: auto-typing (Ctrl-C quits)
+    python3 sim/ripple --keys     # interactive; Tab blanks (screen-off)
 
 The flags ARE the parameter names, in the units `qmk-ripple show` prints, and
 the defaults are read from `qmk/ripple_config.h` rather than copied -- so the
 simulator and the firmware cannot disagree about what "default" means.
 
-    python3 sim/ripple.py --from-board    start from what the board runs now
-    python3 sim/ripple.py --emit-set      print the `qmk-ripple set` lines
+    python3 sim/ripple --from-board    start from what the board runs now
+    python3 sim/ripple --emit-set      print the `qmk-ripple set` lines
 
 which closes the loop: preview a look, then push it to the keyboard.
 

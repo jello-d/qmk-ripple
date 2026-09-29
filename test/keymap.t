@@ -71,51 +71,51 @@ CHANGES = {1: {15: "KC_TILD", 41: "KC_GRV"}}
 
 
 def layers(path):
-    src = open(path).read()
-    out = {}
-    for m in re.finditer(
-            r"\[(\d+)\]\s*=\s*LAYOUT_65_ansi_blocker\((.*?)\n\s*\)", src, re.S):
-        body = re.sub(r"//[^\n]*", "", m.group(2))
-        toks = [t.strip() for t in body.replace("\n", " ").split(",")
-                if t.strip()]
-        out[int(m.group(1))] = toks
-    return out
+  src = open(path).read()
+  out = {}
+  for m in re.finditer(
+          r"\[(\d+)\]\s*=\s*LAYOUT_65_ansi_blocker\((.*?)\n\s*\)", src, re.S):
+    body = re.sub(r"//[^\n]*", "", m.group(2))
+    toks = [t.strip() for t in body.replace("\n", " ").split(",")
+            if t.strip()]
+    out[int(m.group(1))] = toks
+  return out
 
 
 ours, default = layers(sys.argv[1]), layers(sys.argv[2])
 bad = []
 
 if sorted(ours) != sorted(default):
-    bad.append("layer sets differ: ours %s, default %s"
-               % (sorted(ours), sorted(default)))
+  bad.append("layer sets differ: ours %s, default %s"
+             % (sorted(ours), sorted(default)))
 
 for li in sorted(default):
-    o, d = ours.get(li, []), default[li]
-    if len(o) != len(d):
-        bad.append("layer %d has %d keycodes, the default has %d"
-                   % (li, len(o), len(d)))
-        continue
-    for idx, (a, b) in enumerate(zip(o, d)):
-        want = CHANGES.get(li, {}).get(idx)
-        if want is not None:
-            if a != want:
-                bad.append("layer %d index %d should be %s (declared) but is %s"
-                           % (li, idx, want, a))
-        elif a != b:
-            bad.append("layer %d index %d: ours %s, default %s -- an "
-                       "UNDECLARED change" % (li, idx, a, b))
+  o, d = ours.get(li, []), default[li]
+  if len(o) != len(d):
+    bad.append("layer %d has %d keycodes, the default has %d"
+               % (li, len(o), len(d)))
+    continue
+  for idx, (a, b) in enumerate(zip(o, d)):
+    want = CHANGES.get(li, {}).get(idx)
+    if want is not None:
+      if a != want:
+        bad.append("layer %d index %d should be %s (declared) but is %s"
+                   % (li, idx, want, a))
+    elif a != b:
+      bad.append("layer %d index %d: ours %s, default %s -- an "
+                 "UNDECLARED change" % (li, idx, a, b))
 
 # And every declared change must actually be a change, or the list is stale.
 for li, ch in CHANGES.items():
-    for idx, kc in ch.items():
-        if default.get(li, [None] * (idx + 1))[idx] == kc:
-            bad.append("layer %d index %d is already %s upstream; the CHANGES "
-                       "entry is stale" % (li, idx, kc))
+  for idx, kc in ch.items():
+    if default.get(li, [None] * (idx + 1))[idx] == kc:
+      bad.append("layer %d index %d is already %s upstream; the CHANGES "
+                 "entry is stale" % (li, idx, kc))
 
 if bad:
-    for b in bad:
-        print("  " + b, file=sys.stderr)
-    sys.exit(1)
+  for b in bad:
+    print("  " + b, file=sys.stderr)
+  sys.exit(1)
 print("  keymap = board default + %d declared change(s)"
       % sum(len(c) for c in CHANGES.values()))
 EOF

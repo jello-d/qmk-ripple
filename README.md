@@ -301,7 +301,9 @@ FACT, so most tests pin a host-side table against its firmware counterpart:
     setup.t      user/system install modes, staleness, the shadow guard
     placement.t  self-location through a publish, both udev grants
     cli.t        the exit-code contract callers branch on
-    style.t      80 cols, shell syntax, python compiles, no em-dashes
+    device.t     the UF2 drive and hidraw interface picked among decoys
+    keymap.t     the build prefers the repo keymap; default + declared keys
+    style.t      80 cols, syntax, naming, 2-space indent, no tabs, no em-dash
 
 What it CANNOT cover is the wire itself: the firmware only answers on a real
 board, so these pin the host against the C SOURCE. Host and firmware could
@@ -318,3 +320,11 @@ An 80-column limit is also enforced by a tracked pre-commit hook (style.t
 checks the whole tree; the hook checks the diff). Enable it once per clone:
 
     git config core.hooksPath .githooks
+
+`style.t` also pins the naming and indentation conventions, and it derives what
+to check rather than listing it: a file's language comes from its shebang if it
+is EXECUTED and from its marker if it is LOADED, never from a hardcoded glob.
+That matters because a hardcoded `*.sh` list stops finding a file the moment it
+is correctly renamed, silently, while the suite keeps passing. Each derived
+sweep therefore carries a floor on how much it found, so it cannot pass by
+finding nothing.

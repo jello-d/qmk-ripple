@@ -62,25 +62,25 @@ r = qr.RULE_TEXT
 bad = []
 rule = [l for l in r.splitlines() if l.startswith("KERNEL==")]
 if not rule:
-  bad.append("no KERNEL== line in RULE_TEXT")
+    bad.append("no KERNEL== line in RULE_TEXT")
 else:
-  line = " ".join(rule)
-  if 'TAG+="uaccess"' not in line:
-    bad.append('no TAG+="uaccess": a logged-in user could not drive it')
-  if 'GROUP="' not in line or 'MODE="' not in line:
-    bad.append("no GROUP/MODE: seat-independent access is missing, so the "
-               "greeter pre-session case breaks again")
-  if 'GROUP="%s"' % qr.ACCESS_GROUP not in line:
-    bad.append("the rule does not use ACCESS_GROUP (%s)" % qr.ACCESS_GROUP)
-  if "%04x" % qr.VID not in line or "%04x" % qr.PID not in line:
-    bad.append("the rule does not name the VID/PID the tools use")
-  if "%" in line:
-    bad.append("an unexpanded %% is left in the rule text")
+    line = " ".join(rule)
+    if 'TAG+="uaccess"' not in line:
+        bad.append('no TAG+="uaccess": a logged-in user could not drive it')
+    if 'GROUP="' not in line or 'MODE="' not in line:
+        bad.append("no GROUP/MODE: seat-independent access is missing, so the "
+                   "greeter pre-session case breaks again")
+    if 'GROUP="%s"' % qr.ACCESS_GROUP not in line:
+        bad.append("the rule does not use ACCESS_GROUP (%s)" % qr.ACCESS_GROUP)
+    if "%04x" % qr.VID not in line or "%04x" % qr.PID not in line:
+        bad.append("the rule does not name the VID/PID the tools use")
+    if "%" in line:
+        bad.append("an unexpanded %% is left in the rule text")
 if bad:
-  import sys
-  for b in bad:
-    print("  " + b, file=sys.stderr)
-  sys.exit(1)
+    import sys
+    for b in bad:
+        print("  " + b, file=sys.stderr)
+    sys.exit(1)
 EOF
 
 # udev's own parser, when available. A rule this repo generates but udev

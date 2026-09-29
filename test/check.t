@@ -41,9 +41,9 @@ adm.say = lambda msg="": out.append(msg)
 
 
 def run(fn, *a):
-  del out[:]
-  rc = fn(*a)
-  return rc, "\n".join(out)
+    del out[:]
+    rc = fn(*a)
+    return rc, "\n".join(out)
 
 
 # --- the udev rule: the one arm that is pure file state --------------------
@@ -53,25 +53,25 @@ rule = os.path.join(tmp, "rule")
 qr.RULE_PATH = rule                      # absent
 rc, txt = run(adm._check_udev)
 if rc != 1:
-  bad.append("a MISSING udev rule returned %r, not 1: `check` would exit 0 "
-             "and a provisioner would call the box healthy" % rc)
+    bad.append("a MISSING udev rule returned %r, not 1: `check` would exit 0 "
+               "and a provisioner would call the box healthy" % rc)
 if "[FAIL]" not in txt:
-  bad.append("a missing udev rule did not print [FAIL]: %r" % txt)
+    bad.append("a missing udev rule did not print [FAIL]: %r" % txt)
 
 with open(rule, "w") as f:                # present but STALE
-  f.write("something else entirely\n")
+    f.write("something else entirely\n")
 rc, txt = run(adm._check_udev)
 if rc != 1:
-  bad.append("a STALE udev rule returned %r, not 1. Existence is not the "
-             "check; the CONTENT is, or an old rule passes forever" % rc)
+    bad.append("a STALE udev rule returned %r, not 1. Existence is not the "
+               "check; the CONTENT is, or an old rule passes forever" % rc)
 
 with open(rule, "w") as f:                # present and current
-  f.write(qr.RULE_TEXT)
+    f.write(qr.RULE_TEXT)
 rc, txt = run(adm._check_udev)
 if rc != 0:
-  bad.append("a CURRENT udev rule returned %r, not 0" % rc)
+    bad.append("a CURRENT udev rule returned %r, not 0" % rc)
 if "[OK]" not in txt:
-  bad.append("a current udev rule did not print [OK]: %r" % txt)
+    bad.append("a current udev rule did not print [OK]: %r" % txt)
 
 # --- the raw-HID node: present-but-unwritable is the FAIL, absent is a WARN
 # This is the distinction a provisioner lives on. "No keyboard attached" is a
@@ -83,59 +83,59 @@ open(node, "w").close()
 qr.find_node = lambda *a, **k: None
 rc, txt = run(adm._check_raw_hid, None)   # no board at all
 if rc != 0:
-  bad.append("no keyboard attached returned %r, not 0. That is a WARN, not "
-             "drift, or every box without the board fails provisioning" % rc)
+    bad.append("no keyboard attached returned %r, not 0. That is a WARN, not "
+               "drift, or every box without the board fails provisioning" % rc)
 if "[FAIL]" in txt:
-  bad.append("no keyboard attached printed [FAIL]: %r" % txt)
+    bad.append("no keyboard attached printed [FAIL]: %r" % txt)
 
 rc, txt = run(adm._check_raw_hid, "/sys/bus/usb/devices/1-1")
 if "bootstrap" not in txt:
-  bad.append("a board PRESENT with no raw-HID interface should point at "
-             "qmk-ripple-bootstrap (it is stock firmware); got %r" % txt)
+    bad.append("a board PRESENT with no raw-HID interface should point at "
+               "qmk-ripple-bootstrap (it is stock firmware); got %r" % txt)
 
 os.chmod(node, 0o444)
 qr.find_node = lambda *a, **k: node
 rc, txt = run(adm._check_raw_hid, "/sys/bus/usb/devices/1-1")
 if rc != 1:
-  bad.append("an UNWRITABLE raw-HID node returned %r, not 1. That is the "
-             "udev-rule-not-in-effect case and it must fail" % rc)
+    bad.append("an UNWRITABLE raw-HID node returned %r, not 1. That is the "
+               "udev-rule-not-in-effect case and it must fail" % rc)
 if "[FAIL]" not in txt:
-  bad.append("an unwritable node did not print [FAIL]: %r" % txt)
+    bad.append("an unwritable node did not print [FAIL]: %r" % txt)
 
 # --- and do_check COMBINES them: any FAIL wins, a WARN never does ----------
 # EVERY failing arm needs its own case here. Checking only one of them left a
 # hole that a mutation found: dropping `rc = 1` from the raw-HID call is a
 # one-line edit, and with just the udev case below this file still passed.
 with open(rule, "w") as f:
-  f.write(qr.RULE_TEXT)
+    f.write(qr.RULE_TEXT)
 qr.RULE_PATH = rule
 qr.find_usb_dir = lambda *a, **k: None
 qr.find_uf2_dev = lambda *a, **k: None
 qr.find_node = lambda *a, **k: None
 rc, txt = run(adm.do_check)               # healthy rule, no board
 if rc != 0:
-  bad.append("do_check returned %r with a good rule and no board; a box with "
-             "the keyboard unplugged is not drift" % rc)
+    bad.append("do_check returned %r with a good rule and no board; a box with "
+               "the keyboard unplugged is not drift" % rc)
 
 qr.RULE_PATH = os.path.join(tmp, "nope")  # the UDEV arm fails
 rc, txt = run(adm.do_check)
 if rc != 1:
-  bad.append("do_check returned %r when the udev rule was missing; one FAIL "
-             "must carry to the exit code" % rc)
+    bad.append("do_check returned %r when the udev rule was missing; one FAIL "
+               "must carry to the exit code" % rc)
 
 qr.RULE_PATH = rule                       # the RAW-HID arm fails, alone
 qr.find_usb_dir = lambda *a, **k: "/sys/bus/usb/devices/1-1"
 qr.find_node = lambda *a, **k: node        # still mode 0444
 rc, txt = run(adm.do_check)
 if rc != 1:
-  bad.append("do_check returned %r with a good udev rule but an UNWRITABLE "
-             "raw-HID node; that arm's failure is being dropped, so a board "
-             "the user cannot drive reports healthy" % rc)
+    bad.append("do_check returned %r with a good udev rule but an UNWRITABLE "
+               "raw-HID node; that arm's failure is being dropped, so a board "
+               "the user cannot drive reports healthy" % rc)
 
 if bad:
-  for b in bad:
-    print("  " + b, file=sys.stderr)
-  sys.exit(1)
+    for b in bad:
+        print("  " + b, file=sys.stderr)
+    sys.exit(1)
 print("  udev/raw-HID audits and the WARN-vs-FAIL exit contract hold")
 EOF
 

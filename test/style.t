@@ -188,22 +188,28 @@ $f: contains a TAB (2 spaces, never tabs)"
   fi
 done
 
-# --- python indents in steps of exactly 2 ----------------------------------
-# This one guards a 3000-line reindent that nothing else pins, and it cannot
-# be written as "the indent is even": 4-space indentation gives 4, 8, 12,
-# every one of them even. The invariant is the STEP, so walk the INDENT tokens
-# and require each new level to be exactly 2 deeper than the enclosing one.
+# --- python indents in steps of exactly 4 ----------------------------------
+# INDENTATION FOLLOWS THE LANGUAGE (~/src/CLAUDE.md, Code style). 2 spaces is
+# the HOUSE default, used where the language has no answer; Python has one, and
+# it is 4 (PEP 8, and black is not configurable), so this asserts 4 and the
+# shell around it stays at 2. This check was written against the old
+# 2-everywhere reading and pinned exactly the wrong number.
+#
+# It cannot be written as "the indent is even": 4 gives 4, 8, 12, but so does a
+# stray 2-space file at depth 2. The invariant is the STEP, so walk the INDENT
+# tokens and require each new level to be exactly 4 deeper than the enclosing
+# one.
 #
 # Continuation lines are deliberately NOT covered: they live inside a logical
 # line, produce no INDENT token, and are allowed to align to their opening
 # bracket, which is the formatter's call and not ours.
 #
 # Covers the embedded Python too. test/*.t run Python through `py - <<'EOF'`,
-# so a .t file holds 2-space shell and its own Python at once, and the eleven
-# blocks in this suite would otherwise be the one place 4-space could creep
-# back unseen.
+# so a .t file holds 2-space shell and its own 4-space Python at once, and the
+# nine blocks in this suite would otherwise be the one place the wrong step
+# could creep back unseen.
 py - <<'EOF' || bad="$bad
-python indentation is not in steps of 2 (see above)"
+python indentation is not in steps of 4 (see above)"
 import io
 import subprocess
 import sys
@@ -211,94 +217,97 @@ import tokenize
 
 
 def tracked():
-  out = subprocess.run(["git", "ls-files", "--cached", "--others",
-                        "--exclude-standard"], capture_output=True, text=True)
-  return [p for p in out.stdout.split("\n") if p]
+    out = subprocess.run(["git", "ls-files", "--cached", "--others",
+                          "--exclude-standard"], capture_output=True, text=True)
+    return [p for p in out.stdout.split("\n") if p]
 
 
 def is_python(path):
-  """Suffix for a LOADED module, shebang for an EXECUTED one: the same two
+    """Suffix for a LOADED module, shebang for an EXECUTED one: the same two
   declarations the shell half of this test classifies on."""
-  if path.endswith(".py"):
-    return True
-  try:
-    with open(path) as f:
-      first = f.readline()
-  except (OSError, UnicodeDecodeError):
-    return False
-  return first.startswith("#!") and "python" in first
+    if path.endswith(".py"):
+        return True
+    try:
+        with open(path) as f:
+            first = f.readline()
+    except (OSError, UnicodeDecodeError):
+        return False
+    return first.startswith("#!") and "python" in first
 
 
 def heredocs(path):
-  """Every `py - ... <<'EOF'` body in a shell file, as (firstline, source)."""
-  with open(path) as f:
-    lines = f.read().splitlines(keepends=True)
-  out = []
-  i = 0
-  while i < len(lines):
-    if not (lines[i].startswith("py -") and "<<'EOF'" in lines[i]):
-      i += 1
-      continue
-    quotes = 0                      # the opener may wrap over a `|| fail "..."`
+    """Every `py - ... <<'EOF'` body in a shell file, as (firstline, source)."""
+    with open(path) as f:
+        lines = f.read().splitlines(keepends=True)
+    out = []
+    i = 0
     while i < len(lines):
-      quotes += lines[i].count('"')
-      i += 1
-      if quotes % 2 == 0:
-        break
-    start = i
-    while i < len(lines) and lines[i].rstrip("\n") != "EOF":
-      i += 1
-    out.append((start + 1, "".join(lines[start:i])))
-  return out
+        if not (lines[i].startswith("py -") and "<<'EOF'" in lines[i]):
+            i += 1
+            continue
+        # the opener may wrap over a `|| fail "..."`
+        quotes = 0
+        while i < len(lines):
+            quotes += lines[i].count('"')
+            i += 1
+            if quotes % 2 == 0:
+                break
+        start = i
+        while i < len(lines) and lines[i].rstrip("\n") != "EOF":
+            i += 1
+        out.append((start + 1, "".join(lines[start:i])))
+    return out
 
 
 def check(label, src):
-  """Report every INDENT whose step away from its enclosing level is not 2."""
-  bad = []
-  stack = [0]
-  try:
-    for t in tokenize.tokenize(io.BytesIO(src.encode()).readline):
-      if t.type == tokenize.INDENT:
-        lvl = len(t.string.expandtabs(8))
-        if lvl - stack[-1] != 2:
-          bad.append("%s:%d indents %d past %d (want a step of 2)"
-                     % (label, t.start[0], lvl - stack[-1], stack[-1]))
-        stack.append(lvl)
-      elif t.type == tokenize.DEDENT and len(stack) > 1:
-        stack.pop()
-  except (tokenize.TokenError, IndentationError, SyntaxError) as e:
-    bad.append("%s: will not tokenize: %s" % (label, e))
-  return bad
+    """Report every INDENT whose step away from its enclosing level is not 2."""
+    bad = []
+    stack = [0]
+    try:
+        for t in tokenize.tokenize(io.BytesIO(src.encode()).readline):
+            if t.type == tokenize.INDENT:
+                lvl = len(t.string.expandtabs(8))
+                if lvl - stack[-1] != 4:
+                    bad.append(
+                        "%s:%d indents %d past %d (want a step of 4)"
+                        % (label, t.start[0], lvl - stack[-1], stack[-1]))
+                stack.append(lvl)
+            elif t.type == tokenize.DEDENT and len(stack) > 1:
+                stack.pop()
+    except (tokenize.TokenError, IndentationError, SyntaxError) as e:
+        bad.append("%s: will not tokenize: %s" % (label, e))
+    return bad
 
 
 bad = []
 n_files = 0
 n_blocks = 0
 for p in tracked():
-  if p.endswith(".t"):
-    for line, src in heredocs(p):
-      n_blocks += 1
-      bad += check("%s (heredoc at line %d)" % (p, line), src)
-    continue
-  if not is_python(p):
-    continue
-  n_files += 1
-  with open(p) as f:
-    bad += check(p, f.read())
+    if p.endswith(".t"):
+        for line, src in heredocs(p):
+            n_blocks += 1
+            bad += check("%s (heredoc at line %d)" % (p, line), src)
+        continue
+    if not is_python(p):
+        continue
+    n_files += 1
+    with open(p) as f:
+        bad += check(p, f.read())
 
 # A derived sweep that finds nothing passes vacuously, same trap as the syntax
 # check above, so floor both counts.
 if n_files < 5:
-  bad.append("only %d python files classified (expected >=5)" % n_files)
+    bad.append("only %d python files classified (expected >=5)" % n_files)
 if n_blocks < 13:
-  bad.append("only %d heredoc blocks found (expected >=13): the extractor has "
-             "stopped matching and this check is vacuous" % n_blocks)
+    bad.append("only %d heredoc blocks found (expected >=13): the "
+               "extractor has stopped matching and this check is vacuous"
+               % n_blocks)
 
 for b in bad:
-  print("  " + b, file=sys.stderr)
+    print("  " + b, file=sys.stderr)
 if bad:
-  sys.exit(1)
-print("  2-space steps in %d python files and %d embedded blocks"
+    sys.exit(1)
+print("  4-space steps in %d python files and %d embedded blocks"
       % (n_files, n_blocks))
 EOF
 
@@ -307,4 +316,4 @@ if [ -n "$bad" ]; then
   fail "style violations above"
 fi
 
-pass "80 cols, syntax, naming, 2-space steps, no tabs, no em-dashes"
+pass "80 cols, syntax, naming, python 4-space steps, no tabs, no em-dashes"

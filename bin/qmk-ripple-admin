@@ -258,28 +258,51 @@ def do_install():
   return 0
 
 
-def do_check():
-  """Audit: [OK]/[WARN]/[FAIL] markers, non-zero exit on drift.
-
-  Reports only what it can PROVE. It never claims the ripple firmware is
-  installed, because nothing on the wire can show that: see
-  USAGE_PAGE_WARNING.
-  """
-  rc = 0
+def _check_udev():
+  """The udev rule: present AND byte-identical to what we would install."""
   if os.path.exists(qr.RULE_PATH) and \
           open(qr.RULE_PATH).read() == qr.RULE_TEXT:
     say("[OK]   udev rule installed and current")
-  else:
-    say("[FAIL] udev rule missing or stale (%s)" % qr.RULE_PATH)
-    rc = 1
+    return 0
+  say("[FAIL] udev rule missing or stale (%s)" % qr.RULE_PATH)
+  return 1
 
+
+def _check_usb():
+  """Is the board on the bus at all? Returns its sysfs dir, or None."""
   usb = qr.find_usb_dir()
   if usb is None:
     say("[WARN] keyboard not on the USB bus (unplugged, or in its "
         "bootloader)")
   else:
     say("[OK]   keyboard on the USB bus (%s)" % usb)
+  return usb
 
+
+def _check_firmware():
+  """ASK the board whether it is ours.
+
+  0xFF60 alone proves nothing, because VIA shares the page (see
+  USAGE_PAGE_WARNING). Only this firmware answers the namespaced identify
+  with the magic, so that answer is the only real evidence.
+  """
+  try:
+    info = qr.identify()
+  except qr.Error:
+    say("[WARN] the board did NOT answer the ripple identify")
+    say("       Either it runs other raw-HID firmware (VIA answers on "
+        "the same")
+    say("       page), or it is an older ripple build from before the "
+        "tuning")
+    say("       protocol. Reflash to get `set`/`get`/`save`.")
+    return
+  say("[OK]   ripple firmware confirmed (protocol v%d, config v%d, "
+      "%d params)" % (info["proto"], info["config_version"],
+                      info["nparams"]))
+
+
+def _check_raw_hid(usb):
+  """The raw-HID node: present, writable, and answering as ripple."""
   node = qr.find_node()
   if node is None:
     if usb is not None:
@@ -289,33 +312,38 @@ def do_check():
       say("       talks to the board works until it is flashed once, "
           "by hand:")
       say("       run `qmk-ripple-bootstrap`.")
-  elif os.access(node, os.W_OK):
-    say("[OK]   raw-HID interface present and writable (%s)" % node)
-    # 0xFF60 alone proves nothing (VIA shares the page), so ASK the board.
-    # Only this firmware answers the namespaced identify with the magic.
-    try:
-      info = qr.identify()
-      say("[OK]   ripple firmware confirmed (protocol v%d, config v%d, "
-          "%d params)" % (info["proto"], info["config_version"],
-                          info["nparams"]))
-    except qr.Error:
-      say("[WARN] the board did NOT answer the ripple identify")
-      say("       Either it runs other raw-HID firmware (VIA answers on "
-          "the same")
-      say("       page), or it is an older ripple build from before the "
-          "tuning")
-      say("       protocol. Reflash to get `set`/`get`/`save`.")
-  else:
+    return 0
+  if not os.access(node, os.W_OK):
     say("[FAIL] raw-HID node present but not writable (%s)" % node)
     say("       The udev rule needs a relogin, or `install` was never run.")
-    rc = 1
+    return 1
+  say("[OK]   raw-HID interface present and writable (%s)" % node)
+  _check_firmware()
+  return 0
 
+
+def _check_bootloader_drive():
+  """A mounted UF2 drive means the board is in its flasher, not running."""
   dev = qr.find_uf2_dev()
   if dev:
     say("[WARN] a UF2 bootloader drive is mounted at %s -- the board is "
         "in" % dev)
     say("       its flasher, not running firmware. `flash` will pick it "
         "up.")
+
+
+def do_check():
+  """Audit: [OK]/[WARN]/[FAIL] markers, non-zero exit on drift.
+
+  Reports only what it can PROVE, and only a FAIL is drift: a WARN is a
+  legitimate state (no board attached, a board in its bootloader) that must
+  not fail a provisioner.
+  """
+  rc = _check_udev()
+  usb = _check_usb()
+  if _check_raw_hid(usb):
+    rc = 1
+  _check_bootloader_drive()
   return rc
 
 
@@ -337,43 +365,11 @@ def do_roundtrip():
     sys.stderr.write("qmk-ripple-admin: %s\n" % e)
     return 1
   snapshot = {}
-  for name, wire_id, _codec in qr.PARAMS:
+  for name, _wire_id, _codec in qr.PARAMS:
     snapshot[name] = qr.get_param(name)[0]
-
-  bad = 0
-  try:
-    for name, wire_id, codec in qr.PARAMS:
-      cur, lo, hi = qr.get_param(name)
-      probe = None
-      for cand in (lo + 1, hi - 1, lo, hi):
-        if lo <= cand <= hi and cand != cur:
-          probe = cand
-          break
-      if probe is None:
-        say("  %-9s skipped (no distinct in-range probe)" % name)
-        continue
-      qr.set_raw(wire_id, probe)
-      got = qr.get_param(name)[0]
-      if got == probe:
-        say("  %-9s ok   (%s -> read back identical)"
-            % (name, qr.decode(codec, probe)))
-      else:
-        bad += 1
-        say("  %-9s FAIL sent %s, read back %s"
-            % (name, qr.decode(codec, probe), qr.decode(codec, got)))
-    # Out-of-range must be REFUSED, not clamped, and must not change it.
-    for name, wire_id, _codec in qr.PARAMS:
-      cur, _lo, hi = qr.get_param(name)
-      if hi >= 0xFFFFFFFF:
-        continue
-      r = qr.set_raw(wire_id, hi + 1)
-      after = qr.get_param(name)[0]
-      if r[2] != qr.ST_ERANGE:
-        bad += 1
-        say("  %-9s FAIL over-range value was not refused" % name)
-      elif after != cur:
-        bad += 1
-        say("  %-9s FAIL over-range value changed it anyway" % name)
+  bad = 0            # bound before the try, so the return below cannot see
+  try:               # an unbound name on any path
+    bad = _probe_every_param() + _reject_over_range()
     if bad == 0:
       say("  all %d parameters round-trip correctly" % len(qr.PARAMS))
   finally:
@@ -382,6 +378,83 @@ def do_roundtrip():
     say("  (original values restored)")
   return 1 if bad else 0
 
+
+def _pick_probe(cur, lo, hi):
+  """An in-range value that is NOT the current one, so a no-op write cannot
+  masquerade as a successful round-trip. None if the range has no such value."""
+  for cand in (lo + 1, hi - 1, lo, hi):
+    if lo <= cand <= hi and cand != cur:
+      return cand
+  return None
+
+
+def _probe_every_param():
+  """Write a probe to each parameter and read it back. Returns the fault
+  count."""
+  bad = 0
+  for name, wire_id, codec in qr.PARAMS:
+    cur, lo, hi = qr.get_param(name)
+    probe = _pick_probe(cur, lo, hi)
+    if probe is None:
+      say("  %-9s skipped (no distinct in-range probe)" % name)
+      continue
+    qr.set_raw(wire_id, probe)
+    got = qr.get_param(name)[0]
+    if got == probe:
+      say("  %-9s ok   (%s -> read back identical)"
+          % (name, qr.decode(codec, probe)))
+    else:
+      bad += 1
+      say("  %-9s FAIL sent %s, read back %s"
+          % (name, qr.decode(codec, probe), qr.decode(codec, got)))
+  return bad
+
+
+def _reject_over_range():
+  """Out-of-range must be REFUSED, not clamped, and must leave the value
+  alone. Both halves matter: a firmware that clamps still reports success, and
+  one that errors AFTER writing has already lost the old value."""
+  bad = 0
+  for name, wire_id, _codec in qr.PARAMS:
+    cur, _lo, hi = qr.get_param(name)
+    if hi >= 0xFFFFFFFF:
+      continue
+    r = qr.set_raw(wire_id, hi + 1)
+    after = qr.get_param(name)[0]
+    if r[2] != qr.ST_ERANGE:
+      bad += 1
+      say("  %-9s FAIL over-range value was not refused" % name)
+    elif after != cur:
+      bad += 1
+      say("  %-9s FAIL over-range value changed it anyway" % name)
+  return bad
+
+
+def _port_reset(node):
+  """Bus-reset the board: what a host reboot looks like to it, minus the power
+  loss. Needs root for USBDEVFS_RESET, hence the sudo hop."""
+  code = ("import fcntl, os, sys\n"
+          "fd = os.open(sys.argv[1], os.O_WRONLY)\n"
+          "try:\n"
+          "    fcntl.ioctl(fd, (ord('U') << 8) | 20, 0)\n"
+          "finally:\n"
+          "    os.close(fd)\n")
+  return subprocess.run(["sudo", sys.executable, "-c", code,
+                         node]).returncode == 0
+
+
+def _selftest_target():
+  """The (sysfs dir, devnode) to test, or None with the reason printed."""
+  usb = qr.find_usb_dir()
+  if usb is None:
+    sys.stderr.write("qmk-ripple-admin: keyboard not on the USB bus\n")
+    return None
+  if qr.find_node() is None:
+    sys.stderr.write(
+        "qmk-ripple-admin: no raw-HID interface, so the backlight cannot "
+        "be\n  driven. Nothing to selftest until the board is flashed.\n")
+    return None
+  return usb, qr.usb_devnode(usb)
 
 
 def do_selftest(protocol_only=False):
@@ -392,16 +465,10 @@ def do_selftest(protocol_only=False):
   which is exactly the case that used to strand the LEDs dark. Needs root
   only for the USBDEVFS_RESET ioctl.
   """
-  usb = qr.find_usb_dir()
-  if usb is None:
-    sys.stderr.write("qmk-ripple-admin: keyboard not on the USB bus\n")
+  target = _selftest_target()
+  if target is None:
     return 2
-  if qr.find_node() is None:
-    sys.stderr.write(
-        "qmk-ripple-admin: no raw-HID interface, so the backlight cannot "
-        "be\n  driven. Nothing to selftest until the board is flashed.\n")
-    return 2
-  node = qr.usb_devnode(usb)
+  usb, node = target
   say("keyboard: %s -> %s" % (usb, node))
 
   say("")
@@ -423,16 +490,10 @@ def do_selftest(protocol_only=False):
     return 1
   time.sleep(3)
   say("        --> the keys should be DARK right now.")
+
   say("")
   say("STEP 3: USB port reset (what a reboot looks like to the board) ...")
-  code = ("import fcntl, os, sys\n"
-          "fd = os.open(sys.argv[1], os.O_WRONLY)\n"
-          "try:\n"
-          "    fcntl.ioctl(fd, (ord('U') << 8) | 20, 0)\n"
-          "finally:\n"
-          "    os.close(fd)\n")
-  p = subprocess.run(["sudo", sys.executable, "-c", code, node])
-  if p.returncode != 0:
+  if not _port_reset(node):
     sys.stderr.write("qmk-ripple-admin: port reset failed\n")
     return 1
   say("        waiting for the board to come back ...")
@@ -441,13 +502,19 @@ def do_selftest(protocol_only=False):
     sys.stderr.write("qmk-ripple-admin: board did not re-enumerate\n")
     return 1
   time.sleep(2)
+  _selftest_verdict()
+  return 0
+
+
+def _selftest_verdict():
+  """The relight is judged BY EYE on purpose: the whole point is what the user
+  sees after a reboot, and the host cannot read the LEDs back."""
   say("")
   say("RESULT: look at the keyboard.")
   say("  LIT  -> the relight works (it recovered with no host help).")
   say("  DARK -> it did not; the board needs the current firmware flashed.")
   say("")
   say("Either way the board is fine; `qmk-ripple on` relights it.")
-  return 0
 
 
 # --- main --------------------------------------------------------------------

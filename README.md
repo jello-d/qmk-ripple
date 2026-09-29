@@ -301,6 +301,7 @@ FACT, so most tests pin a host-side table against its firmware counterpart:
     setup.t      user/system install modes, staleness, the shadow guard
     placement.t  self-location through a publish, both udev grants
     cli.t        the exit-code contract callers branch on
+    check.t      the audit's WARN-vs-FAIL exit contract, arm by arm
     device.t     the UF2 drive and hidraw interface picked among decoys
     keymap.t     the build prefers the repo keymap; default + declared keys
     style.t      80 cols, syntax, naming, 2-space indent, no tabs, no em-dash

@@ -91,8 +91,8 @@ find . -name __pycache__ -type d -prune -exec rm -rf {} + 2>/dev/null || true
 # A derived list can silently become EMPTY, and then every syntax check above
 # passes by finding nothing. That is the failure mode the old hardcoded list
 # did not have, so pay for it with a floor: these counts only ever grow.
-[ "$_nsh" -ge 15 ] || bad="$bad
-classified only $_nsh shell files (expected >=15): _lang has stopped
+[ "$_nsh" -ge 16 ] || bad="$bad
+classified only $_nsh shell files (expected >=16): _lang has stopped
 recognising them, so the syntax check is passing vacuously"
 [ "$_npy" -ge 5 ] || bad="$bad
 classified only $_npy python files (expected >=5): _lang has stopped
@@ -290,8 +290,8 @@ for p in tracked():
 # check above, so floor both counts.
 if n_files < 5:
   bad.append("only %d python files classified (expected >=5)" % n_files)
-if n_blocks < 12:
-  bad.append("only %d heredoc blocks found (expected >=12): the extractor has "
+if n_blocks < 13:
+  bad.append("only %d heredoc blocks found (expected >=13): the extractor has "
              "stopped matching and this check is vacuous" % n_blocks)
 
 for b in bad:

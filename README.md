@@ -304,7 +304,9 @@ FACT, so most tests pin a host-side table against its firmware counterpart:
     check.t      the audit's WARN-vs-FAIL exit contract, arm by arm
     device.t     the UF2 drive and hidraw interface picked among decoys
     keymap.t     the build prefers the repo keymap; default + declared keys
-    style.t      80 cols, syntax, naming, 2-space indent, no tabs, no em-dash
+    conventions.t the shared house rules: 80 cols, tabs, indent steps,
+                 naming, em-dashes, and that every shell file parses
+    docs.t       that every test above is in this very table
 
 What it CANNOT cover is the wire itself: the firmware only answers on a real
 board, so these pin the host against the C SOURCE. Host and firmware could

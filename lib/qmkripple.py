@@ -120,13 +120,13 @@ class Error(Exception):
 
 class Unsupported(Error):
     """The firmware is too old to answer this. Distinct from a failure,
-  because "I could not check" and "the check failed" must not look the same
-  to a verify hook: one is a gap, the other is a fault."""
+    because "I could not check" and "the check failed" must not look the same
+    to a verify hook: one is a gap, the other is a fault."""
 
 
 class NotFound(Exception):
     """The keyboard is not on the bus. Callers exit 2 (a benign no-op for
-  panel-power, which must treat 'no keyboard' as nothing to do)."""
+    panel-power, which must treat 'no keyboard' as nothing to do)."""
 
 
 # Sysfs roots, overridable ONLY so the tests can point them at a fixture tree.
@@ -154,9 +154,9 @@ def uevent(path):
 def find_node(vid=VID, pid=PID):
     """/dev/hidrawN for the raw-HID (0xFF60) interface of vid:pid, or None.
 
-  Scans sysfs rather than using hidapi, whose Linux backend reports
-  usage_page as 0 and so cannot pick the right interface.
-  """
+    Scans sysfs rather than using hidapi, whose Linux backend reports
+    usage_page as 0 and so cannot pick the right interface.
+    """
     want = "%04X:%08X:%08X" % (0x0003, vid, pid)  # bus:vid:pid in HID_ID
     for sysdir in sorted(glob.glob(SYS_HIDRAW + "/hidraw*")):
         dev = os.path.join(sysdir, "device")
@@ -175,7 +175,7 @@ def find_node(vid=VID, pid=PID):
 
 def find_usb_dir(vid=VID, pid=PID):
     """/sys/bus/usb/devices/<n> for the board, or None. Used for the port
-  reset and for waiting out a re-enumeration."""
+    reset and for waiting out a re-enumeration."""
     for d in sorted(glob.glob("/sys/bus/usb/devices/*/")):
         try:
             with open(os.path.join(d, "idVendor")) as f:
@@ -222,9 +222,9 @@ def wait_for(predicate, timeout, interval=1.0):
 def send(cmd, vid=VID, pid=PID):
     """Send a 1-byte control command. Raises NotFound / Error.
 
-  Deliberately does NOT probe or identify the firmware first: see
-  USAGE_PAGE_WARNING. The caller is asserting this board runs ripple.
-  """
+    Deliberately does NOT probe or identify the firmware first: see
+    USAGE_PAGE_WARNING. The caller is asserting this board runs ripple.
+    """
     if cmd not in CMDS:
         raise Error("unknown command %r" % cmd)
     node = find_node(vid, pid)
@@ -328,9 +328,9 @@ def encode(codec, s):
 def xfer(payload, vid=VID, pid=PID, timeout=1.0):
     """Send a report and return the firmware's 32-byte reply.
 
-  The control path (off/on) is deliberately write-only and never waits; this
-  is for the v2 commands, which are request/response.
-  """
+    The control path (off/on) is deliberately write-only and never waits; this
+    is for the v2 commands, which are request/response.
+    """
     node = find_node(vid, pid)
     if node is None:
         raise NotFound("keyboard not found (no 0xFF60 raw-HID interface)")
@@ -367,10 +367,10 @@ def _u32(b, off):
 def identify(vid=VID, pid=PID):
     """Positively confirm the ripple firmware. Returns a dict, or raises.
 
-  This is the ONLY reliable check: an 0xFF60 interface alone proves nothing
-  (VIA has one too), and an older ripple build echoes any command back
-  without the magic, so it is distinguishable from a current one.
-  """
+    This is the ONLY reliable check: an 0xFF60 interface alone proves nothing
+    (VIA has one too), and an older ripple build echoes any command back
+    without the magic, so it is distinguishable from a current one.
+    """
     reply = xfer([PREFIX, SUB_IDENTIFY], vid, pid)
     if reply[0] != PREFIX or reply[4:7] != MAGIC:
         raise Error(
@@ -385,10 +385,10 @@ def identify(vid=VID, pid=PID):
 def status(vid=VID, pid=PID):
     """LIVE runtime state: is the matrix lit right now, and in which mode.
 
-  Distinct from get_param(): this is not config and is never saved. It is
-  what a verify hook reads to catch a dark screen over lit keys, which
-  off/on cannot detect because they are fire-and-forget writes.
-  """
+    Distinct from get_param(): this is not config and is never saved. It is
+    what a verify hook reads to catch a dark screen over lit keys, which
+    off/on cannot detect because they are fire-and-forget writes.
+    """
     r = xfer([PREFIX, SUB_STATUS], vid, pid)
     if r[0] != PREFIX or r[2] == ST_EBADCMD:
         raise Unsupported(
@@ -450,10 +450,10 @@ def reset_params(vid=VID, pid=PID):
 def find_uf2_dev():
     """/dev/sdX of the tinyuf2 drive, or None.
 
-  Matched on the SCSI model ("Adafruit UF2 Bootloader"), never on a label or
-  a guess at the device letter, so no other removable device -- a card
-  reader, a stick, the system disk -- can be mistaken for the keyboard.
-  """
+    Matched on the SCSI model ("Adafruit UF2 Bootloader"), never on a label or
+    a guess at the device letter, so no other removable device -- a card
+    reader, a stick, the system disk -- can be mistaken for the keyboard.
+    """
     for blk in sorted(glob.glob(SYS_BLOCK + "/sd*")):
         try:
             with open(os.path.join(blk, "device", "model")) as f:
@@ -481,11 +481,11 @@ def mountpoint(dev):
 def udisks_mount(dev, log=lambda _m: None, settle=20, tries=6):
     """Mount dev via udisks, absorbing the enumeration race.
 
-  udisks2 handles the uevent asynchronously, so the device shows up in
-  /sys/block a beat before udisks has an object for it and an immediate
-  `udisksctl mount` dies with "Error looking up object for device". Wait for
-  udisks to see it, then retry the mount.
-  """
+    udisks2 handles the uevent asynchronously, so the device shows up in
+    /sys/block a beat before udisks has an object for it and an immediate
+    `udisksctl mount` dies with "Error looking up object for device". Wait for
+    udisks to see it, then retry the mount.
+    """
     for i in range(settle):
         if _run_ok(["udisksctl", "info", "-b", dev]):
             log("udisks saw %s after %ds" % (dev, i))
@@ -520,8 +520,8 @@ _DEF_RE = None
 
 def firmware_defaults():
     """The RIPPLE_* #defaults, in the same DISPLAY units `qmk-ripple show`
-  prints (colours as rrggbb, peak/falloff as fractions). Raises if the
-  header cannot be read: a silently-empty default set would be worse."""
+    prints (colours as rrggbb, peak/falloff as fractions). Raises if the
+    header cannot be read: a silently-empty default set would be worse."""
     import re
     path = os.path.join(pkg_root(), "qmk", "ripple_config.h")
     try:
@@ -559,8 +559,8 @@ def firmware_defaults():
 
 def board_values(vid=VID, pid=PID):
     """The parameters LIVE on the keyboard, in the same display units as
-  firmware_defaults(), so the simulator can preview what is actually on the
-  board instead of what the defaults say."""
+    firmware_defaults(), so the simulator can preview what is actually on the
+    board instead of what the defaults say."""
     identify(vid, pid)
     out = {}
     for name, _wire_id, codec in PARAMS:
@@ -578,5 +578,5 @@ def board_values(vid=VID, pid=PID):
 
 def pkg_root():
     """The package checkout root, resolved THROUGH the bin/ symlink that a
-  provisioner drops on PATH."""
+    provisioner drops on PATH."""
     return os.path.dirname(os.path.dirname(os.path.realpath(__file__)))

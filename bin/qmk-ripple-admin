@@ -162,7 +162,7 @@ def do_flash(args):
             for line in f.read().splitlines()[:3]:
                 say("  %s" % line)
     else:
-        say("  WARNING: no INFO_UF2.TXT -- is this really the board?")
+        say("  WARNING: no INFO_UF2.TXT; is this really the board?")
 
     say("copying (the board reboots itself the moment the image lands) ...")
     # The board leaves the bus mid-write, so I/O errors HERE are the expected
@@ -175,7 +175,7 @@ def do_flash(args):
             dst.flush()
             os.fsync(dst.fileno())
     except OSError as e:
-        say("  (write reported %s -- normal if the board already rebooted)" % e)
+        say("  (write reported %s, normal if the board already rebooted)" % e)
 
     say("waiting up to %ds for the keyboard to come back ..." % args.wait)
     qr.wait_for(qr.present, args.wait)
@@ -326,7 +326,7 @@ def _check_bootloader_drive():
     """A mounted UF2 drive means the board is in its flasher, not running."""
     dev = qr.find_uf2_dev()
     if dev:
-        say("[WARN] a UF2 bootloader drive is mounted at %s -- the board is "
+        say("[WARN] a UF2 bootloader drive is mounted at %s: the board is "
             "in" % dev)
         say("       its flasher, not running firmware. `flash` will pick it "
             "up.")

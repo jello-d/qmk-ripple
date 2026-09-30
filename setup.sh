@@ -168,7 +168,7 @@ do_install() {
     if [ "$COPY" != 1 ] && published "$_c"; then
       echo "SKIP $BIN/$_c: already published at $SHARED_BIN/$_c"
       echo "     (installing it here too would put $_c on PATH TWICE, and"
-      echo "      $SHARED_BIN wins -- the shared copy is the only one)"
+      echo "      $SHARED_BIN wins; the shared copy is the only one)"
       continue
     fi
     _place "$b" "$BIN/$_c" 0755
@@ -203,18 +203,18 @@ do_check() {
   _rc=0
   _n=0
   # The commands import lib/qmkripple.py by resolving their own path. If that
-  # is missing they still EXIST and `command -v` still finds them -- they just
+  # is missing they still EXIST and `command -v` still finds them; they just
   # fail at startup. A caller like panel-power runs them with output discarded
   # and the exit code ignored (deliberately: a dimming hiccup must never wedge
   # a lock screen), so that failure is INVISIBLE downstream and shows up only
   # as a keyboard that quietly stopped blanking. Hence: check it here.
   if [ ! -f "$HERE/lib/qmkripple.py" ]; then
-    echo "[FAIL] lib/qmkripple.py missing -- every command will fail to start"
+    echo "[FAIL] lib/qmkripple.py missing: every command will fail to start"
     _rc=1
   elif [ "$COPY" = 1 ] && [ ! -f "$LIB/qmkripple.py" ]; then
     # In copy mode the commands resolve lib next to the PREFIX, not in the
     # checkout, so the copy is what has to be there.
-    echo "[FAIL] $LIB/qmkripple.py missing -- copied commands cannot start"
+    echo "[FAIL] $LIB/qmkripple.py missing: copied commands cannot start"
     _rc=1
   elif [ "$COPY" = 1 ] && ! cmp -s "$LIB/qmkripple.py" "$HERE/lib/qmkripple.py"
   then
@@ -233,7 +233,7 @@ do_check() {
       # `command -v` (one winner reads as no shadow).
       if [ -e "$_l" ] || [ -L "$_l" ]; then
         echo "[FAIL] $(basename "$b") is on PATH TWICE: $_l shadowed by"
-        echo "       $SHARED_BIN/$(basename "$b") -- remove the user copy"
+        echo "       $SHARED_BIN/$(basename "$b"): remove the user copy"
         _rc=1
       else
         echo "[OK]   $(basename "$b") published at $SHARED_BIN (not here)"

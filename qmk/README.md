@@ -60,7 +60,7 @@ so the recovery from any failure is to re-run it, with no power cycle needed.
   yet cannot be asked, so the one-time path is `qmk-ripple-bootstrap`: it
   prompts you to double-tap reset, waits for the UF2 drive, then flashes.
 - **A bare `bootloader_jump()` skips the shutdown hooks.** The red indicator is
-  painted by `shutdown_user`, which QMK runs from `shutdown_quantum()` --
+  painted by `shutdown_user`, which QMK runs from `shutdown_quantum()`,
   reached via `reset_keyboard()`, *not* by calling `bootloader_jump()`
   directly. Getting this wrong put the board in the flasher with the keys still
   blue. `reset_keyboard()` also waits 250ms, which is what gives the IS31FL3733

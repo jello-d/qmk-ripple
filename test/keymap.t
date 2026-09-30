@@ -102,7 +102,7 @@ for li in sorted(default):
                 bad.append("layer %d index %d should be %s (declared) but is %s"
                            % (li, idx, want, a))
         elif a != b:
-            bad.append("layer %d index %d: ours %s, default %s -- an "
+            bad.append("layer %d index %d: ours %s, default %s: an "
                        "UNDECLARED change" % (li, idx, a, b))
 
 # And every declared change must actually be a change, or the list is stale.

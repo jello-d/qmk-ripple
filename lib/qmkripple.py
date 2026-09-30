@@ -87,7 +87,7 @@ the package works, including `flash` with no --manual (it jumps by itself)."""
 USAGE_PAGE_WARNING = """\
 0xFF60 is the STANDARD QMK raw-HID usage page, not ours: VIA uses it too. Its
 presence proves a raw-HID interface exists, NOT that the ripple firmware is
-running. The command bytes collide, and not harmlessly -- ripple's 0x03
+running. The command bytes collide, and not harmlessly: ripple's 0x03
 (bootloader) is VIA's id_set_keyboard_value, a WRITE. So these tools never
 send control bytes to a board just because the interface is there; on an
 unconfirmed board, flash with --manual instead."""
@@ -451,8 +451,8 @@ def find_uf2_dev():
     """/dev/sdX of the tinyuf2 drive, or None.
 
     Matched on the SCSI model ("Adafruit UF2 Bootloader"), never on a label or
-    a guess at the device letter, so no other removable device -- a card
-    reader, a stick, the system disk -- can be mistaken for the keyboard.
+    a guess at the device letter, so no other removable device (a card
+    reader, a stick, the system disk) can be mistaken for the keyboard.
     """
     for blk in sorted(glob.glob(SYS_BLOCK + "/sd*")):
         try:

@@ -136,7 +136,7 @@ def main():
         return do_check()
 
     st = board_state()
-    say("qmk-ripple bootstrap -- one time per keyboard.")
+    say("qmk-ripple bootstrap: one time per keyboard.")
     say("board: %s" % STATE_TEXT[st])
 
     if st == "absent":
@@ -145,7 +145,7 @@ def main():
         return 1
     if st == "ripple":
         say("")
-        say("This board is ALREADY bootstrapped. Nothing to do -- reflashing")
+        say("This board is ALREADY bootstrapped. Nothing to do; reflashing")
         say("an update is `qmk-ripple-admin flash`, which can drive itself.")
         return 0
 

@@ -98,7 +98,7 @@ run check PREFIX="$W" QMKRIPPLE_INSTALL_COPY=1 >/dev/null 2>&1 \
 
 # NOT EXERCISED HERE: the owner-mismatch arm (an ancestor owned by another
 # non-root user), which is the /usr/local case itself. Constructing it needs
-# root to chown, so this suite cannot reach it -- said plainly rather than
+# root to chown, so this suite cannot reach it; said plainly rather than
 # left to look covered.
 
 # --- the shadow guard ------------------------------------------------------

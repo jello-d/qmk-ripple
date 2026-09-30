@@ -71,11 +71,11 @@ class Params:
 
 def ripple_intensity(dist, age_ms, p):
     """Colour-BLEND amount [0,1] for a key `dist` units from a hit `age_ms` old.
-  Two factors: a distance PEAK of `peak` per key-step (direct key 1.0,
-  adjacent = peak, 2 keys out = peak^2 -> the outer ring is faint) times a
-  time DECAY that blends back to base over `fade`. Brightness stays constant
-  (held in led_color); distance sets the peak and delays arrival (the ripple).
-  THIS IS THE QMK REFERENCE."""
+    Two factors: a distance PEAK of `peak` per key-step (direct key 1.0,
+    adjacent = peak, 2 keys out = peak^2 -> the outer ring is faint) times a
+    time DECAY that blends back to base over `fade`. Brightness stays constant
+    (held in led_color); distance sets the peak and delays arrival (the ripple).
+    THIS IS THE QMK REFERENCE."""
     if dist > p.radius:
         return 0.0
     arrival = dist * p.spread             # the wavefront reaches this key later

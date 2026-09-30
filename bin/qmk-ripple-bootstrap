@@ -58,14 +58,14 @@ def rule(title):
 def board_state():
     """What is actually true right now, in one place.
 
-  Returns one of:
-    'absent'      nothing on the bus at this VID/PID
-    'bootloader'  a UF2 drive is present; the board is in its flasher
-    'stock'       on the bus, but no raw-HID interface (or not writable)
-    'noaccess'    raw-HID present but we cannot write it (udev rule missing)
-    'foreign'     raw-HID answers, but not with the ripple magic
-    'ripple'      confirmed ripple firmware
-  """
+    Returns one of:
+      'absent'      nothing on the bus at this VID/PID
+      'bootloader'  a UF2 drive is present; the board is in its flasher
+      'stock'       on the bus, but no raw-HID interface (or not writable)
+      'noaccess'    raw-HID present but we cannot write it (udev rule missing)
+      'foreign'     raw-HID answers, but not with the ripple magic
+      'ripple'      confirmed ripple firmware
+    """
     if qr.find_uf2_dev():
         return "bootloader"
     if not qr.present():

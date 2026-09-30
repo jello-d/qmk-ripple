@@ -85,9 +85,9 @@ def default_uf2(board, keymap):
 def do_flash(args):
     """Put the board in its bootloader, mount the UF2 drive, copy, verify.
 
-  Every step here exists because a simpler version of it failed on real
-  hardware; see the comments and the README's flashing notes.
-  """
+    Every step here exists because a simpler version of it failed on real
+    hardware; see the comments and the README's flashing notes.
+    """
     uf2 = args.file or default_uf2(args.board, args.keymap)
     if not uf2 or not os.path.exists(uf2):
         sys.stderr.write(
@@ -216,7 +216,7 @@ def shutil_which(name):
 
 def do_bootloader():
     """Jump to the flasher and stop there (no flash). For a manual flash, or
-  to check the red indicator."""
+    to check the red indicator."""
     try:
         qr.send("bootloader")
     except qr.NotFound:
@@ -282,10 +282,10 @@ def _check_usb():
 def _check_firmware():
     """ASK the board whether it is ours.
 
-  0xFF60 alone proves nothing, because VIA shares the page (see
-  USAGE_PAGE_WARNING). Only this firmware answers the namespaced identify
-  with the magic, so that answer is the only real evidence.
-  """
+    0xFF60 alone proves nothing, because VIA shares the page (see
+    USAGE_PAGE_WARNING). Only this firmware answers the namespaced identify
+    with the magic, so that answer is the only real evidence.
+    """
     try:
         info = qr.identify()
     except qr.Error:
@@ -335,10 +335,10 @@ def _check_bootloader_drive():
 def do_check():
     """Audit: [OK]/[WARN]/[FAIL] markers, non-zero exit on drift.
 
-  Reports only what it can PROVE, and only a FAIL is drift: a WARN is a
-  legitimate state (no board attached, a board in its bootloader) that must
-  not fail a provisioner.
-  """
+    Reports only what it can PROVE, and only a FAIL is drift: a WARN is a
+    legitimate state (no board attached, a board in its bootloader) that must
+    not fail a provisioner.
+    """
     rc = _check_udev()
     usb = _check_usb()
     if _check_raw_hid(usb):
@@ -351,14 +351,14 @@ def do_check():
 def do_roundtrip():
     """Set every parameter to a probe value and read it back.
 
-  This exists because a one-byte offset error in the firmware's SET handler
-  shipped once and NOTHING else caught it: identify passed, get passed, show
-  rendered a clean table, and the values were silently shifted a byte. Only
-  comparing what went in against what came back finds that class of bug.
+    This exists because a one-byte offset error in the firmware's SET handler
+    shipped once and NOTHING else caught it: identify passed, get passed, show
+    rendered a clean table, and the values were silently shifted a byte. Only
+    comparing what went in against what came back finds that class of bug.
 
-  Non-destructive: the current values are snapshotted first and written back
-  at the end, so an unsaved tuning session survives the test.
-  """
+    Non-destructive: the current values are snapshotted first and written back
+    at the end, so an unsaved tuning session survives the test.
+    """
     try:
         qr.identify()
     except qr.Error as e:
@@ -381,7 +381,8 @@ def do_roundtrip():
 
 def _pick_probe(cur, lo, hi):
     """An in-range value that is NOT the current one, so a no-op write cannot
-  masquerade as a successful round-trip. None if the range has no such value."""
+    masquerade as a successful round-trip. None if the range has no such
+    value."""
     for cand in (lo + 1, hi - 1, lo, hi):
         if lo <= cand <= hi and cand != cur:
             return cand
@@ -390,7 +391,7 @@ def _pick_probe(cur, lo, hi):
 
 def _probe_every_param():
     """Write a probe to each parameter and read it back. Returns the fault
-  count."""
+    count."""
     bad = 0
     for name, wire_id, codec in qr.PARAMS:
         cur, lo, hi = qr.get_param(name)
@@ -412,8 +413,8 @@ def _probe_every_param():
 
 def _reject_over_range():
     """Out-of-range must be REFUSED, not clamped, and must leave the value
-  alone. Both halves matter: a firmware that clamps still reports success, and
-  one that errors AFTER writing has already lost the old value."""
+    alone. Both halves matter: a firmware that clamps still reports success, and
+    one that errors AFTER writing has already lost the old value."""
     bad = 0
     for name, wire_id, _codec in qr.PARAMS:
         cur, _lo, hi = qr.get_param(name)
@@ -432,7 +433,7 @@ def _reject_over_range():
 
 def _port_reset(node):
     """Bus-reset the board: what a host reboot looks like to it, minus the power
-  loss. Needs root for USBDEVFS_RESET, hence the sudo hop."""
+    loss. Needs root for USBDEVFS_RESET, hence the sudo hop."""
     code = ("import fcntl, os, sys\n"
             "fd = os.open(sys.argv[1], os.O_WRONLY)\n"
             "try:\n"
@@ -460,11 +461,11 @@ def _selftest_target():
 def do_selftest(protocol_only=False):
     """Prove the relight-on-enumeration fix, without a reboot.
 
-  Blank the backlight, then port-reset the board. A port reset is the same
-  bus-reset-then-reconfigure a host reboot produces, with no loss of power,
-  which is exactly the case that used to strand the LEDs dark. Needs root
-  only for the USBDEVFS_RESET ioctl.
-  """
+    Blank the backlight, then port-reset the board. A port reset is the same
+    bus-reset-then-reconfigure a host reboot produces, with no loss of power,
+    which is exactly the case that used to strand the LEDs dark. Needs root
+    only for the USBDEVFS_RESET ioctl.
+    """
     target = _selftest_target()
     if target is None:
         return 2
@@ -508,7 +509,7 @@ def do_selftest(protocol_only=False):
 
 def _selftest_verdict():
     """The relight is judged BY EYE on purpose: the whole point is what the user
-  sees after a reboot, and the host cannot read the LEDs back."""
+    sees after a reboot, and the host cannot read the LEDs back."""
     say("")
     say("RESULT: look at the keyboard.")
     say("  LIT  -> the relight works (it recovered with no host help).")

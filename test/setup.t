@@ -101,6 +101,32 @@ run check PREFIX="$W" QMKRIPPLE_INSTALL_COPY=1 >/dev/null 2>&1 \
 # root to chown, so this suite cannot reach it; said plainly rather than
 # left to look covered.
 
+# --- and the audit must cover the PUBLISH path, not just the prefix tree ----
+# The two audited paths both walked $PREFIX, so the check was blind to the one
+# path that actually decides what the greeter runs: whoever can replace a
+# directory on $SHARED_BIN chooses the binary, however tidy /opt is. Measured
+# on the real box 2026-09-29, where the /opt side was green while /usr/local
+# was still owned by the login user.
+#
+# Driven through the world-writable arm rather than owner-mismatch, because
+# that one needs no chown and hits the same call site.
+V=$T/pubwide
+mkdir -p "$V/bin"
+ln -s "$Y/bin/qmk-ripple" "$V/bin/qmk-ripple"
+chmod 777 "$V"
+env SHARED_BIN="$V/bin" PREFIX="$Y" QMKRIPPLE_INSTALL_COPY=1 \
+  sh "$S" check >/dev/null 2>&1 \
+  && fail "an unsafe directory on the PUBLISH path passed the audit; the
+greeter resolves the command through there, so that path decides what runs"
+env SHARED_BIN="$V/bin" PREFIX="$Y" QMKRIPPLE_INSTALL_COPY=1 \
+  sh "$S" check 2>&1 | grep -q "$V" \
+  || fail "the audit failed without naming the unsafe publish directory"
+chmod 755 "$V"
+env SHARED_BIN="$V/bin" PREFIX="$Y" QMKRIPPLE_INSTALL_COPY=1 \
+  sh "$S" check >/dev/null 2>&1 \
+  || fail "the publish-path audit still fails after the directory was
+tightened"
+
 # --- the shadow guard ------------------------------------------------------
 # Publish the shared command, then a user install must NOT make a second copy.
 ln -s "$Y/bin/qmk-ripple" "$P/qmk-ripple"

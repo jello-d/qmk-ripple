@@ -275,8 +275,22 @@ do_check() {
 $(each_bin)
 EOF
   [ "$_n" -gt 0 ] || { echo "[FAIL] no executables in $HERE/bin"; _rc=1; }
-  [ "$COPY" = 1 ] && { _audit_path "$BIN/$(_first_bin)" || _rc=1
-                       _audit_path "$LIB/qmkripple.py" || _rc=1; }
+  # AUDIT THE PATH THE CALLER ACTUALLY RESOLVES, not just the one the files
+  # sit on. These were the only two audited, and both walk the $PREFIX tree,
+  # so the check could not see the very case it was written for: /usr/local
+  # owned by the login user with /usr/local/bin and everything under it root.
+  # The greeter reaches this command as $SHARED_BIN/<cmd>, so whoever can
+  # replace a directory on THAT path chooses what the greeter executes, no
+  # matter how the /opt tree is owned. Measured 2026-09-29: the /opt side was
+  # clean and green while /usr/local was still jello-owned.
+  if [ "$COPY" = 1 ]; then
+    _audit_path "$BIN/$(_first_bin)" || _rc=1
+    _audit_path "$LIB/qmkripple.py" || _rc=1
+    for _pub in $SYSTEM_TOOLS; do
+      [ -e "$SHARED_BIN/$_pub" ] || continue
+      _audit_path "$SHARED_BIN/$_pub" || _rc=1
+    done
+  fi
   # In copy mode the tree is DELIBERATELY off PATH: only the integrator's
   # single /usr/local/bin symlink is published, so warning that $BIN is absent
   # from PATH would be advice to create the very double the standard bans.

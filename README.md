@@ -222,13 +222,38 @@ values now are; that pairing is the one duplication left on purpose.
 
 Standalone, no provisioner:
 
-    sh setup.sh install        symlink bin/* into ~/.local/bin (idempotent)
+    sh setup.sh install        payload + links into ~/.local/bin (idempotent)
     qmk-ripple-admin install   the udev rule (the one privileged step)
     qmk-ripple-bootstrap       if this board has never run the firmware
 
-`setup.sh check` verifies the links and `setup.sh uninstall` removes only the
-ones pointing into this checkout, leaving a same-named command from elsewhere
-alone.
+`setup.sh check` verifies the payload and the links; `setup.sh uninstall`
+removes the links it owns plus the payload, leaving a same-named command from
+elsewhere alone.
+
+### The payload tree
+
+`install` copies the dirs the commands read into ONE payload and links `bin/`
+into it:
+
+    ~/.local/share/qmk-ripple/{bin,lib,qmk}   copies of this repo's tree
+    ~/.local/bin/<cmd>  ->  ~/.local/share/qmk-ripple/bin/<cmd>
+
+It is a COPY and not a link farm because, as a managed package, "this checkout"
+is `~/.cache/tackup/pkgs/qmk-ripple`, a clone re-cloned on every sweep and
+wiped on demand. Linking `~/.local/bin` straight at it means every command on
+PATH dangles the next time it is wiped.
+
+All three dirs are in the payload because the commands SELF-LOCATE by resolving
+their own real path and reading siblings, so a link into the payload makes
+`../lib` and `../qmk` the payload's own:
+
+    lib/   every command imports lib/qmkripple.py
+    qmk/   `qmk-ripple-admin build` runs `pkg_root()/qmk/build`, and
+           `firmware_defaults()` reads `pkg_root()/qmk/ripple_config.h`
+
+That invariant is why `bin`, `lib` and `qmk` have to live inside the one
+payload, and it is what makes a checkout, a relocated install and a managed
+deploy all work unchanged.
 
 As a managed package this is the SAME path: tackup's `install_pkg_tree()`
 delegates to `setup.sh install` when it is executable ("a package that ships
@@ -238,9 +263,9 @@ It stays non-privileged for that reason: the provisioner's package mode does
 no sudo, so the udev rule is deliberately left to `qmk-ripple-admin install`,
 which the provisioner runs separately.
 
-The links must be symlinks resolving into the checkout, not copies: the
-commands self-locate `lib/qmkripple.py` through their own path, and the
-provisioner's "is it installed?" test compares realpaths.
+`QMKRIPPLE_INSTALL_COPY=1` is the other mode and builds no payload: there the
+`$PREFIX` tree (`/opt/qmk-ripple`) IS the payload, one level up, with real
+files so a root-owned prefix can serve the greeter. See "Shared install" below.
 
 ### Device access: two grants, on purpose
 
@@ -276,9 +301,10 @@ compiled into whichever binary runs them, so an out-of-date copy will say
 "already current" about a rule it is no longer the authority on. If `check` is
 green but behaviour disagrees, confirm the deployed version first.
 
-`bin/` and `lib/` must stay siblings in the checkout: both commands locate
-`lib/qmkripple.py` by resolving their own path *through* the PATH symlink, and
-say so loudly if it is missing.
+`bin/` and `lib/` must stay siblings wherever the commands live, in the
+checkout and inside the installed payload alike: every command locates
+`lib/qmkripple.py` by resolving its own path *through* the PATH symlink, and
+says so loudly if it is missing.
 
 Anything calling this package needs a PATH that includes `~/.local/bin`. A
 caller exec'd from a minimal environment (a compositor's lock hook, say) may

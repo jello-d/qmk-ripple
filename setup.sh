@@ -12,13 +12,40 @@
 #     mapping"), passing PREFIX / XDG_BIN_HOME / XDG_DATA_HOME. Honouring those
 #     is why the same script serves both.
 #
-# SYMLINKS by default, and specifically symlinks whose realpath is the file in
-# this checkout: the commands self-locate lib/qmkripple.py by resolving their
-# own path THROUGH the link, and a provisioner's "is it installed?" test
-# compares realpaths. A copy would break both.
+# A PAYLOAD TREE, NOT A SYMLINK FARM INTO THIS CHECKOUT. User mode copies the
+# dirs the commands read into ONE payload and links bin/ into that:
 #
-# QMKRIPPLE_INSTALL_COPY=1 switches to real-file COPIES, and also installs
-# lib/qmkripple.py, because a symlink farm cannot serve a SYSTEM prefix. The
+#     ~/.local/share/qmk-ripple/{bin,lib,qmk}   COPIES of this repo's tree
+#     ~/.local/bin/<cmd>  ->  ~/.local/share/qmk-ripple/bin/<cmd>
+#
+# WHY IT CHANGED, and it was a live breakage rather than tidiness: this script
+# used to symlink ~/.local/bin straight at the checkout, and under a provisioner
+# the "checkout" is ~/.cache/tackup/pkgs/qmk-ripple, a clone RE-CLONED on every
+# sweep and wiped on demand. Every link dangled on the next wipe. Measured here
+# 2026-09-30, before the conversion: `check` reported
+#
+#     [FAIL] ~/.local/bin/qmk-ripple-admin does not point into this checkout
+#            (~/.cache/tackup/pkgs/qmk-ripple/bin/... !=
+#             ~/src/qmk-ripple/bin/...)
+#
+# which is that exact split, the deployed clone's links sitting on PATH while
+# the checkout's own install thought it owned them. The payload is a copy, so it
+# survives the clone being wiped and there is one answer to "what is on PATH".
+#
+# THE PAYLOAD MUST HOLD EVERY DIR THE COMMANDS READ, not just bin: they
+# self-locate by resolving their own real path and reading SIBLINGS, so a link
+# into the payload makes `../lib` and `../qmk` the payload's own.
+#   lib/  every command imports lib/qmkripple.py (bin/*:  realpath -> ../lib)
+#   qmk/  `qmk-ripple-admin build` runs pkg_root()/qmk/build, and
+#         firmware_defaults() reads pkg_root()/qmk/ripple_config.h
+# Dropping qmk/ would leave `build` broken in a way nothing else notices, since
+# it is the one verb a hardware-free test cannot run.
+#
+# QMKRIPPLE_INSTALL_COPY=1 switches to real-file COPIES under $PREFIX, and also
+# installs lib/qmkripple.py, because a symlink farm cannot serve a SYSTEM
+# prefix, and because the shared command is published by an INTEGRATOR into a
+# root-owned tree rather than by a user into their own. Copy mode is NOT a
+# payload: /opt/qmk-ripple IS the payload, one level up. The
 # clone lives under a login user's home (0750, and ~/.cache is 0700), so
 # /usr/local/bin/qmk-ripple as a symlink is a path another user can see and
 # cannot follow. That is not hypothetical: with greeter coverage on, the
@@ -37,10 +64,28 @@
 set -eu
 
 HERE=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+# HOME may be UNSET under a provisioner or a systemd unit, and under `set -u`
+# that is an immediate exit on the next line rather than a diagnosable error.
+# Derive it from passwd instead of trusting the environment.
+if [ -z "${HOME:-}" ]; then
+  HOME=$(getent passwd "$(id -u)" | cut -d: -f6)
+  [ -n "$HOME" ] || { echo "setup.sh: cannot determine HOME" >&2; exit 1; }
+  export HOME
+fi
 PREFIX=${PREFIX:-$HOME/.local}
 BIN=${XDG_BIN_HOME:-$PREFIX/bin}
 LIB=${QMKRIPPLE_LIB_DIR:-$PREFIX/lib}
 COPY=${QMKRIPPLE_INSTALL_COPY:-0}
+
+PKG=qmk-ripple
+# The payload root, user mode only. XDG_DATA_HOME is honoured because a
+# provisioner passes it; $PREFIX/share is the fallback so a scratch PREFIX
+# stays self-contained.
+PAY=${XDG_DATA_HOME:-$PREFIX/share}/$PKG
+# Every repo dir that goes into the payload, because a command resolves it as a
+# sibling of its own real path. Adding a dir a command reads means adding it
+# here, and test/setup.t asserts the set.
+PAYLOAD_DIRS="bin lib qmk"
 
 # CLASSIFY PER COMMAND, not per package. Only ONE command here is ever run by
 # an identity other than the login user: `qmk-ripple`, which an integrator's
@@ -158,9 +203,64 @@ _place() {
   fi
 }
 
+# _payload_guard: refuse to let anything but a plausible payload path reach a
+# delete. The standing rule is that `rm -rf` never runs on an unexpanded
+# variable; this is the expanded-and-CHECKED half of it, and the reason it is
+# not paranoia is that mux's own harness deleted mux's working tree when an
+# empty value reached `rm -rf` at trap fire time.
+_payload_guard() {
+  case $PAY in
+    /*/*/*) ;;
+    *) echo "setup.sh: refusing to touch a payload at '$PAY'" >&2; return 1 ;;
+  esac
+  case $PAY in
+    */$PKG) ;;
+    *) echo "setup.sh: payload '$PAY' does not end in /$PKG" >&2; return 1 ;;
+  esac
+}
+
+# _payload_stage: build the new payload BESIDE the live one and swap it in, so
+# a run that dies halfway leaves the working install alone rather than a
+# half-copied tree on PATH.
+#
+# cp -R into a FRESH directory, never over the live one, which also sidesteps
+# the trap in the other direction: a plain `cp` onto a path that is currently a
+# SYMLINK writes THROUGH it, and before this conversion every one of these
+# paths was a symlink into the checkout.
+_payload_stage() {
+  _payload_guard || return 1
+  _new=$PAY.new
+  _old=$PAY.old
+  rm -rf -- "$_new" "$_old"
+  mkdir -p "$_new"
+  for _d in $PAYLOAD_DIRS; do
+    if [ ! -d "$HERE/$_d" ]; then
+      echo "setup.sh: no $_d/ to stage; the checkout is incomplete" >&2
+      rm -rf -- "$_new"
+      return 1
+    fi
+    cp -R "$HERE/$_d" "$_new/" || { rm -rf -- "$_new"; return 1; }
+  done
+  # Prove the thing we are about to put on PATH before putting it there.
+  if [ ! -x "$_new/bin/$PKG" ] || [ ! -f "$_new/lib/qmkripple.py" ]; then
+    echo "setup.sh: staged payload is missing bin/$PKG or lib/qmkripple.py" >&2
+    rm -rf -- "$_new"
+    return 1
+  fi
+  if [ -d "$PAY" ]; then mv -- "$PAY" "$_old"; fi
+  mv -- "$_new" "$PAY"
+  rm -rf -- "$_old"
+}
+
 do_install() {
   mkdir -p "$BIN"
   if [ "$COPY" = 1 ]; then _verb=copied; else _verb=linked; fi
+  # USER MODE: stage the payload FIRST, so the links below have something real
+  # to point at and never briefly point at a tree being written.
+  if [ "$COPY" != 1 ]; then
+    _payload_stage || return 1
+    echo "payload $PAY ($PAYLOAD_DIRS)"
+  fi
   _n=0
   while IFS= read -r b; do
     [ -n "$b" ] || continue
@@ -171,7 +271,13 @@ do_install() {
       echo "      $SHARED_BIN wins; the shared copy is the only one)"
       continue
     fi
-    _place "$b" "$BIN/$_c" 0755
+    if [ "$COPY" = 1 ]; then
+      _place "$b" "$BIN/$_c" 0755
+    else
+      # Point INTO THE PAYLOAD, not at $b. $b is this checkout, which under a
+      # provisioner is the clone that gets wiped.
+      ln -sfn "$PAY/bin/$_c" "$BIN/$_c"
+    fi
     echo "$_verb $BIN/$_c"
     _n=$((_n + 1))
   done <<EOF
@@ -220,14 +326,43 @@ do_check() {
   then
     echo "[FAIL] $LIB/qmkripple.py is a STALE copy"
     _rc=1
+  elif [ "$COPY" != 1 ] && [ -d "$PAY" ] && \
+       ! cmp -s "$PAY/lib/qmkripple.py" "$HERE/lib/qmkripple.py"; then
+    # User mode: the PAYLOAD's copy is the one that runs. The checkout's being
+    # fine says nothing, which is the whole point of copying it.
+    echo "[FAIL] $PAY/lib/qmkripple.py is missing or STALE (re-run install)"
+    _rc=1
   else
     echo "[OK]   lib/qmkripple.py present"
+  fi
+  # USER MODE: the payload is what the links point at, so it is the thing that
+  # has to exist. Checked BEFORE the per-command loop, because every finding
+  # below is a consequence of this one and reporting ten of them hides it.
+  if [ "$COPY" != 1 ]; then
+    if [ ! -d "$PAY" ] || [ -L "$PAY" ]; then
+      echo "[FAIL] no payload at $PAY (expected a real directory)"
+      _rc=1
+    else
+      _miss=
+      for _d in $PAYLOAD_DIRS; do
+        if [ ! -d "$PAY/$_d" ]; then _miss="$_miss $_d"; fi
+      done
+      if [ -n "$_miss" ]; then
+        echo "[FAIL] payload $PAY is missing:$_miss"
+        echo "       the commands resolve these as siblings of their own path,"
+        echo "       so a missing one breaks at runtime, not at install"
+        _rc=1
+      else
+        echo "[OK]   payload $PAY ($PAYLOAD_DIRS)"
+      fi
+    fi
   fi
   while IFS= read -r b; do
     [ -n "$b" ] || continue
     _n=$((_n + 1))
-    _l=$BIN/$(basename "$b")
-    if [ "$COPY" != 1 ] && published "$(basename "$b")"; then
+    _c0=$(basename "$b")
+    _l=$BIN/$_c0
+    if [ "$COPY" != 1 ] && published "$_c0"; then
       # Published as shared. Absent from ~/.local/bin is CORRECT here; present
       # is the double the standard bans, and it is invisible to a plain
       # `command -v` (one winner reads as no shadow).
@@ -256,11 +391,12 @@ do_check() {
       else
         echo "[OK]   $_l (copy)"
       fi
-    elif [ "$(readlink -f "$_l")" != "$(readlink -f "$b")" ]; then
-      # Not just "a file is there": it must resolve to THIS checkout, or the
-      # commands on PATH are someone else's copy and every other check lies.
-      echo "[FAIL] $_l does not point into this checkout"
-      echo "       ($(readlink -f "$_l") != $(readlink -f "$b"))"
+    elif [ "$(readlink -f "$_l")" != "$(readlink -f "$PAY/bin/$_c0")" ]; then
+      # It must resolve INTO THE PAYLOAD. Pointing at the checkout is the old
+      # model and is now a finding in its own right: under a provisioner the
+      # checkout is a clone that gets wiped, and the link dangles.
+      echo "[FAIL] $_l does not resolve into the payload"
+      echo "       ($(readlink -f "$_l") != $PAY/bin/$_c0)"
       _rc=1
     elif ! "$_l" --help >/dev/null 2>&1; then
       # Present and correctly linked, but does not RUN. Catches a broken
@@ -275,6 +411,30 @@ do_check() {
 $(each_bin)
 EOF
   [ "$_n" -gt 0 ] || { echo "[FAIL] no executables in $HERE/bin"; _rc=1; }
+  # NOTHING ON PATH MAY RESOLVE INTO A PACKAGE CLONE. This is the invariant the
+  # payload conversion exists to establish, so it is asserted directly rather
+  # than inferred from the link checks above: a provisioner RE-CLONES
+  # ~/.cache/tackup/pkgs/<pkg> on every sweep and wipes it on demand, so a link
+  # resolving in there works right up until it silently does not.
+  #
+  # Deliberately matched on the PATH SHAPE and not on $HERE. Running this script
+  # FROM the clone is the normal provisioner case and is fine, because the
+  # payload is a copy; what must never happen is an installed path resolving
+  # back into one.
+  _clone_bad=0
+  for _p in "$PAY" $(each_bin | sed "s|^$HERE/bin/|$BIN/|"); do
+    [ -e "$_p" ] || continue
+    case "$(readlink -f "$_p")" in
+      */.cache/tackup/pkgs/*)
+        echo "[FAIL] $_p resolves into a package clone:"
+        echo "       $(readlink -f "$_p")"
+        echo "       that clone is re-cloned every sweep, so this will dangle"
+        _clone_bad=1; _rc=1 ;;
+    esac
+  done
+  if [ "$_clone_bad" = 0 ]; then
+    echo "[OK]   nothing installed resolves into a package clone"
+  fi
   # AUDIT THE PATH THE CALLER ACTUALLY RESOLVES, not just the one the files
   # sit on. These were the only two audited, and both walk the $PREFIX tree,
   # so the check could not see the very case it was written for: /usr/local
@@ -316,11 +476,15 @@ EOF
 do_uninstall() {
   while IFS= read -r b; do
     [ -n "$b" ] || continue
-    _l=$BIN/$(basename "$b")
+    _c0=$(basename "$b")
+    _l=$BIN/$_c0
     # Only remove a link we own. A same-named command from somewhere else is
-    # left alone rather than silently deleted.
+    # left alone rather than silently deleted. "Ours" now means it resolves
+    # into the payload; the checkout arm stays so an install predating the
+    # payload conversion is still cleaned up rather than orphaned on PATH.
     if [ -L "$_l" ] && \
-       [ "$(readlink -f "$_l")" = "$(readlink -f "$b")" ]; then
+       { [ "$(readlink -f "$_l")" = "$(readlink -f "$PAY/bin/$_c0")" ] || \
+         [ "$(readlink -f "$_l")" = "$(readlink -f "$b")" ]; }; then
       rm -f "$_l"
       echo "removed $_l"
     elif [ "$COPY" = 1 ] && [ -f "$_l" ] && cmp -s "$_l" "$b"; then
@@ -332,6 +496,14 @@ do_uninstall() {
   done <<EOF
 $(each_bin)
 EOF
+  # The payload last, and only in user mode: copy mode's $PREFIX IS the tree an
+  # integrator owns, so removing it is their call, not ours.
+  if [ "$COPY" != 1 ] && [ -e "$PAY" ]; then
+    if _payload_guard; then
+      rm -rf -- "$PAY"
+      echo "removed $PAY"
+    fi
+  fi
   echo ""
   echo "The udev rule is NOT removed by this; it is root-owned:"
   echo "    sudo rm -f /etc/udev/rules.d/60-qmk-ripple.rules"

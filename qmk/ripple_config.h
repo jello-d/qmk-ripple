@@ -1,10 +1,10 @@
 // Copyright 2026 jello-d
 // SPDX-License-Identifier: Apache-2.0
 //
-// ripple_config.h -- the runtime-tunable state of the ripple effect, shared
+// ripple_config.h: the runtime-tunable state of the ripple effect, shared
 // between hostctl.c (which owns the instance and the host protocol) and
 // rgb_matrix_user.inc (which renders from it). They are separate translation
-// units -- the .inc is included into QMK's rgb_matrix.c -- so the struct has
+// units (the .inc is included into QMK's rgb_matrix.c) so the struct has
 // to live in a header both can see.
 //
 // Everything here used to be a compile-time #define. The defaults still are,

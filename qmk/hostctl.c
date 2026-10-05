@@ -1,4 +1,4 @@
-// hostctl.c -- raw-HID host control of the RGB backlight, for the screen-off
+// hostctl.c: raw-HID host control of the RGB backlight, for the screen-off
 // integration (panel-power). RAW_ENABLE (rules.mk) exposes the 0xFF60 raw-HID
 // interface; this handler turns the matrix off/on on a one-byte command:
 //   0x01 -> off        (rgb_matrix_disable_noeeprom: LEDs dark, effect paused)
@@ -27,7 +27,7 @@ enum hostctl_cmd {
 
 // Namespaced protocol: every v2 message is [0x52]['R'-ish subcmd][payload].
 // 0x52 is undefined in VIA's command space, so one of these aimed at a VIA
-// board falls into its id_unhandled branch and does NOTHING -- unlike the flat
+// board falls into its id_unhandled branch and does NOTHING, unlike the flat
 // bytes above, where our 0x03 is VIA's id_set_keyboard_value, a WRITE. It also
 // gives us a trustworthy IDENTIFY: only this firmware answers with the magic,
 // so a host can positively confirm what it is talking to rather than guessing
@@ -55,8 +55,8 @@ enum ripple_status {
 #define RIPPLE_MAGIC1 'P'
 #define RIPPLE_MAGIC2 'L'
 
-// Wire layout. REQUEST and REPLY are NOT the same shape -- the reply inserts a
-// status byte before the id -- so the offsets are named rather than written as
+// Wire layout. REQUEST and REPLY are NOT the same shape (the reply inserts a
+// status byte before the id) so the offsets are named rather than written as
 // literals at each use. Getting this wrong by one byte is silent and looks
 // like corrupted values, not like a protocol error (it shipped once: SET read
 // the argument from REQ_VALUE+1, so every value arrived shifted a byte).
@@ -228,8 +228,8 @@ static void ripple_handle(uint8_t *data, uint8_t length) {
             // LIVE runtime state, deliberately NOT a parameter: whether the
             // matrix is lit right now is not config, is never saved, and must
             // not be settable here. It exists so a verify hook can catch the
-            // one failure this package keeps rediscovering -- the screen dark
-            // and the keys still lit -- which is invisible otherwise, because
+            // one failure this package keeps rediscovering: the screen dark
+            // and the keys still lit, which is invisible otherwise, because
             // off/on are fire-and-forget writes with nothing to read back.
             ripple_reply(data, sub, RIPPLE_OK, 0);
             data[REP_VALUE]     = rgb_matrix_is_enabled() ? 1 : 0;
@@ -362,10 +362,10 @@ void notify_usb_device_state_change_user(struct usb_device_state state) {
 // a double-tap reset that routes through firmware). Paint the whole matrix the
 // indicator colour and FLUSH it: the IS31FL3733 latches its PWM registers and
 // holds them with no firmware running, so the colour persists THROUGH the
-// bootloader -- a clear "I am in flashing mode". A plain reset that skips
+// bootloader, a clear "I am in flashing mode". A plain reset that skips
 // firmware won't show it. Reaching here at all requires the caller to go
 // through shutdown_quantum() (reset_keyboard does; a bare bootloader_jump()
-// does NOT) -- see the 0x03 case above, which got that wrong once.
+// does NOT); see the 0x03 case above, which got that wrong once.
 bool shutdown_user(bool jump_to_bootloader) {
     if (jump_to_bootloader) {
         rgb_matrix_set_color_all(RGB_BOOT_R, RGB_BOOT_G, RGB_BOOT_B);

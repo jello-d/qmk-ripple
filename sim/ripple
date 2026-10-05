@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""ripple -- host simulator for the "solid base + reactive ripple" RGB effect.
+"""ripple: host simulator for the "solid base + reactive ripple" RGB effect.
 
 Renders the effect in the terminal (24-bit colour) against a real keyboard's LED
 layout, driven by synthetic or live keypresses, so the look can be tuned with
 zero flashing. The intensity math in ripple_intensity() is the REFERENCE for the
-QMK port -- keep it and the QMK custom effect in lockstep.
+QMK port; keep it and the QMK custom effect in lockstep.
 
 Model (matches QMK's rgb_matrix reactive framework):
   - coordinates are QMK's 0..224 (x) by 0..64 (y) LED grid.
@@ -32,7 +32,7 @@ In step with the rest of the package:
     commands to push a tuned look back, closing the tune -> apply loop.
 
 ripple_intensity() below is still a hand-mirrored port of the C in
-rgb_matrix_user.inc -- two languages, so the MATH cannot be shared the way the
+rgb_matrix_user.inc: two languages, so the MATH cannot be shared the way the
 values now are. Keep the two in lockstep by hand; that pairing is the one
 duplication left on purpose.
 """
@@ -45,7 +45,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(HERE), "lib"))
 try:
     import qmkripple as qr
 except ImportError:
-    sys.stderr.write("ripple: cannot import lib/qmkripple.py -- sim/ and "
+    sys.stderr.write("ripple: cannot import lib/qmkripple.py; sim/ and "
                      "lib/ must stay siblings in the checkout.\n")
     sys.exit(1)
 

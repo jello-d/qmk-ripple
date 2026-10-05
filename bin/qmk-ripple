@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # Copyright 2026 jello-d
 # SPDX-License-Identifier: Apache-2.0
-"""qmk-ripple -- routine control of the ripple keyboard backlight.
+"""qmk-ripple: routine control of the ripple keyboard backlight.
 
 The HOT PATH: panel-power runs this on every screen blank and unblank, so it
 stays small, dependency-free, and NEVER needs root (the udev rule installed by
@@ -16,7 +16,7 @@ stays small, dependency-free, and NEVER needs root (the udev rule installed by
     qmk-ripple save                  commit the current values to EEPROM
     qmk-ripple reset                 back to the compiled-in defaults
 
-Setup, flashing, auditing -- and the bootloader jump -- live in a separate
+Setup, flashing, auditing (and the bootloader jump) live in a separate
 command, qmk-ripple-admin.
 
 TUNING IS TRANSIENT until you `save`, so sweeping a value costs no flash wear,
@@ -42,7 +42,7 @@ always comes back lit even if this command never gets to send "on".
 
 Exit: 0 ok; 1 error or a failed --expect; 2 keyboard not found (so a caller
 treats "no keyboard" as a harmless no-op); 3 the firmware cannot answer (a
-gap, not a fault -- see `status`).
+gap, not a fault; see `status`).
 """
 import argparse
 import os
@@ -54,7 +54,7 @@ try:
     import qmkripple as qr
 except ImportError:
     sys.stderr.write(
-        "qmk-ripple: cannot import lib/qmkripple.py -- the package layout is\n"
+        "qmk-ripple: cannot import lib/qmkripple.py; the package layout is\n"
         "broken. bin/ and lib/ must stay siblings in the checkout.\n")
     sys.exit(1)
 
